@@ -13,88 +13,105 @@ campaign
     attempt
 ```
 
-A campaign is the durable scientific record of what you intended to run. A task is one named unit of work. An attempt is one concrete execution of that task.
-
-YAWL-run aims to own:
-
-- campaign identity and manifests
-- stable task names
-- attempt history and retries
-- stdout/stderr capture
-- lightweight provenance
-- a simple status view
-- backend adapters
-
-YAWL-run explicitly does **not** aim to own:
-
-- machine selection
-- resource matching
-- queue policy
-- arbitrary workflow languages
-- dependency graph scheduling
-
-Those belong to execution systems such as HTCondor/DAGMan, Slurm, or other workflow engines.
+The same campaign specification can run locally or through HTCondor/DAGMan. YAWL-run owns campaign identity, stable task names, dependencies, retry history, logs, provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
 
 > Naming note: YAWL-run is not the YAWL (Yet Another Workflow Language) workflow system.
 
-## First prototype
-
-This repository starts with a local backend so the campaign model can be exercised without a cluster. An HTCondor backend is the obvious next adapter.
+## Install
 
 Requires Python 3.9+.
 
 ```bash
-python -m pip install -e .
+python3 -m pip install -e .
+```
 
+## Local smoke test
+
+```bash
 yawl-run validate examples/hello.toml
 yawl-run plan examples/hello.toml
 yawl-run start examples/hello.toml --root ./campaigns
 yawl-run status ./campaigns/<campaign-id>
 ```
 
-A failed task can be retried:
+## Condor / DAGMan
+
+`examples/condor-dag.toml` demonstrates sibling jobs, retries, and a child that waits for both parents.
+
+First render everything without submitting:
 
 ```bash
-yawl-run retry ./campaigns/<campaign-id> task-name
+yawl-run validate examples/condor-dag.toml
+yawl-run plan examples/condor-dag.toml
+yawl-run start examples/condor-dag.toml --root ./campaigns --dry-run
 ```
 
-## Example campaign
+The generated campaign contains:
+
+```text
+condor/
+  campaign.dag
+  yawl_0000_left.sub
+  yawl_0000_left.sh
+  yawl_0001_right.sub
+  yawl_0001_right.sh
+  yawl_0002_finish.sub
+  yawl_0002_finish.sh
+  logs/
+```
+
+When the DAG looks right, submit for real:
+
+```bash
+yawl-run start examples/condor-dag.toml --root ./campaigns
+```
+
+or override a campaign's configured backend:
+
+```bash
+yawl-run start examples/hello.toml --backend condor --root ./campaigns --dry-run
+```
+
+DAGMan retries invoke the YAWL worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable YAWL campaign record rather than living only in scheduler history.
+
+Check state with:
+
+```bash
+yawl-run status ./campaigns/<campaign-id>
+```
+
+For Condor campaigns, status also queries the DAGMan cluster when it is still present in `condor_q`.
+
+## Example DAG campaign
 
 ```toml
 [campaign]
-name = "hello-yawl"
+name = "condor-dag-demo"
+backend = "condor"
 
 [[task]]
 name = "left"
-command = "python -c 'print(\"left says hello\")'"
+command = "./left-analysis"
+retries = 1
 
 [[task]]
 name = "right"
-command = "python -c 'print(\"right says hello\")'"
+command = "./right-analysis"
+retries = 1
+
+[[task]]
+name = "compare"
+command = "./compare-results"
+parents = ["left", "right"]
 ```
 
-## Campaign directory
-
-A run creates a durable directory of the form:
+That renders the DAGMan relationship:
 
 ```text
-campaigns/
-  hello-yawl-20260901T220000Z-a1b2c3d4/
-    campaign.json
-    provenance.json
-    tasks/
-      left/
-        task.json
-        attempts/
-          001/
-            attempt.json
-            stdout.log
-            stderr.log
-      right/
-        ...
+left  --\
+         > compare
+right --/
 ```
-
-That directory should remain understandable after the live scheduler state is long gone.
 
 ## Design rule
 
@@ -102,4 +119,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-Prototype. Small on purpose.
+Prototype. Small on purpose, but now with a real HTCondor/DAGMan backend.
