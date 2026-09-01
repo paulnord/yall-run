@@ -21,6 +21,23 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
+def _inspect_file(ref: dict[str, Any]) -> dict[str, Any]:
+    path = Path(ref["path"])
+    result: dict[str, Any] = {"role": ref.get("role"), "path": str(path)}
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        result.update({"exists": False, "stat_error": str(exc)})
+        return result
+    result.update({
+        "exists": True,
+        "kind": "directory" if path.is_dir() else "file",
+        "size_bytes": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    })
+    return result
+
+
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
     campaign_dir = Path(campaign_dir).expanduser()
     if not campaign_dir.is_absolute():
@@ -43,12 +60,16 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     stdout_path = attempt_dir / "stdout.log"
     stderr_path = attempt_dir / "stderr.log"
 
+    command = task["command"]
+    inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     _write_json(attempt_dir / "attempt.json", {
         "attempt": number,
         "state": "running",
         "started_at": started,
-        "command": task["command"],
+        "command": command,
+        "cwd": task.get("cwd"),
+        "inputs": inputs,
     })
     task["state"] = "running"
     task["attempts"] = number
@@ -57,8 +78,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
         proc = subprocess.run(
-            task["command"],
-            shell=True,
+            command,
+            shell=isinstance(command, str),
             cwd=str(cwd) if cwd else None,
             stdout=out,
             stderr=err,
@@ -67,13 +88,17 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     state = "completed" if proc.returncode == 0 else "failed"
     finished = _utc_now()
+    outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
     _write_json(attempt_dir / "attempt.json", {
         "attempt": number,
         "state": state,
         "started_at": started,
         "finished_at": finished,
         "returncode": proc.returncode,
-        "command": task["command"],
+        "command": command,
+        "cwd": task.get("cwd"),
+        "inputs": inputs,
+        "outputs": outputs,
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
     })
