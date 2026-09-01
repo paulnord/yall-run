@@ -6,12 +6,11 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
-import sys
 from typing import Any
 
 from .campaign import create_campaign
 from .model import CampaignSpec
-
+from .paths import logical_absolute
 
 _CLUSTER_RE = re.compile(r"cluster\s+(\d+)", re.IGNORECASE)
 
@@ -33,12 +32,12 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     logs_dir = condor_dir / "logs"
     logs_dir.mkdir()
 
-    # The source tree is normally on a shared filesystem. Putting it first in
-    # PYTHONPATH makes the worker independent of the user's interactive PATH.
-    source_root = Path(__file__).resolve().parents[1]
-    python = Path(sys.executable).resolve()
-    node_names: dict[str, str] = {}
+    worker_source = Path(__file__).with_name("worker.py").read_text()
+    worker = condor_dir / "yawl_worker.py"
+    worker.write_text(worker_source)
+    worker.chmod(0o755)
 
+    node_names: dict[str, str] = {}
     dag_lines: list[str] = []
     for index, task in enumerate(spec.tasks):
         node = f"yawl_{index:04d}_{_slug(task.name)}"
@@ -48,8 +47,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         wrapper.write_text(
             "#!/bin/bash\n"
             "set -e\n"
-            f"export PYTHONPATH={shlex.quote(str(source_root))}:${{PYTHONPATH:-}}\n"
-            f"exec {shlex.quote(str(python))} -m yawl_run.cli worker "
+            f"exec /usr/bin/env python3 {shlex.quote(str(worker))} "
             f"{shlex.quote(str(campaign_dir))} {shlex.quote(task.name)}\n"
         )
         wrapper.chmod(0o755)
@@ -92,22 +90,10 @@ def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> 
     campaign_dir = render_condor(spec, root)
     if not submit:
         return campaign_dir
-
     condor_dir = campaign_dir / "condor"
     dag_path = condor_dir / "campaign.dag"
-    proc = subprocess.run(
-        ["condor_submit_dag", dag_path.name],
-        cwd=condor_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    record: dict[str, Any] = {
-        "command": ["condor_submit_dag", dag_path.name],
-        "returncode": proc.returncode,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
-    }
+    proc = subprocess.run(["condor_submit_dag", dag_path.name], cwd=condor_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    record: dict[str, Any] = {"command": ["condor_submit_dag", dag_path.name], "returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
     match = _CLUSTER_RE.search(proc.stdout)
     if match:
         record["cluster_id"] = int(match.group(1))
@@ -118,7 +104,7 @@ def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> 
 
 
 def condor_queue_status(campaign_dir: str | Path) -> dict[str, int] | None:
-    campaign_dir = Path(campaign_dir).resolve()
+    campaign_dir = logical_absolute(campaign_dir)
     submit_path = campaign_dir / "condor" / "submit.json"
     if not submit_path.exists():
         return None
@@ -127,27 +113,12 @@ def condor_queue_status(campaign_dir: str | Path) -> dict[str, int] | None:
     if cluster_id is None:
         return None
     try:
-        proc = subprocess.run(
-            ["condor_q", str(cluster_id), "-af", "JobStatus"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=10,
-        )
+        proc = subprocess.run(["condor_q", str(cluster_id), "-af", "JobStatus"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
         return None
-
-    names = {
-        "1": "idle",
-        "2": "running",
-        "3": "removed",
-        "4": "completed",
-        "5": "held",
-        "6": "transferring",
-        "7": "suspended",
-    }
+    names = {"1": "idle", "2": "running", "3": "removed", "4": "completed", "5": "held", "6": "transferring", "7": "suspended"}
     counts: dict[str, int] = {}
     for line in proc.stdout.splitlines():
         key = names.get(line.strip(), "unknown")
