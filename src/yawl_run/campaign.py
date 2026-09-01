@@ -110,6 +110,10 @@ def start_local(spec: CampaignSpec, root: str | Path) -> Path:
     return campaign_dir
 
 
+# Original prototype API; retained while the backend abstraction settles.
+start_campaign = start_local
+
+
 def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
     campaign_dir = logical_absolute(campaign_dir)
     manifest = _read_json(campaign_dir / "campaign.json")
