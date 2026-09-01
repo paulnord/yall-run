@@ -12,6 +12,7 @@ import sys
 from typing import Any
 
 from .model import CampaignSpec
+from .paths import logical_absolute, logical_cwd
 
 
 def _utc_now() -> str:
@@ -39,7 +40,7 @@ def _task_dir(campaign_dir: Path, task_name: str) -> Path:
 
 
 def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = None) -> Path:
-    root = Path(root).resolve()
+    root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
     selected_backend = backend or spec.backend
@@ -60,7 +61,7 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
         "hostname": platform.node(),
         "platform": platform.platform(),
         "python": sys.version,
-        "cwd": os.getcwd(),
+        "cwd": str(logical_cwd()),
         "argv": sys.argv,
     }
     _write_json(campaign_dir / "provenance.json", provenance)
@@ -88,7 +89,7 @@ def _next_attempt_dir(task_dir: Path) -> tuple[int, Path]:
 
 
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
-    campaign_dir = Path(campaign_dir).resolve()
+    campaign_dir = logical_absolute(campaign_dir)
     tdir = _task_dir(campaign_dir, task_name)
     task_path = tdir / "task.json"
     if not task_path.exists():
@@ -111,7 +112,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     task["attempts"] = number
     _write_json(task_path, task)
 
-    cwd = Path(task["cwd"]).expanduser() if task.get("cwd") else None
+    cwd = logical_absolute(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
         proc = subprocess.run(
             task["command"],
@@ -179,7 +180,7 @@ def start_local(spec: CampaignSpec, root: str | Path) -> Path:
 
 
 def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
-    campaign_dir = Path(campaign_dir).resolve()
+    campaign_dir = logical_absolute(campaign_dir)
     manifest = _read_json(campaign_dir / "campaign.json")
     tasks = []
     counts: dict[str, int] = {}
