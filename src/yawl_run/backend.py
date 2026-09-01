@@ -13,6 +13,15 @@ from .model import CampaignSpec
 from .paths import logical_absolute
 
 _CLUSTER_RE = re.compile(r"cluster\s+(\d+)", re.IGNORECASE)
+_STATUS_NAMES = {
+    "1": "idle",
+    "2": "running",
+    "3": "removed",
+    "4": "completed",
+    "5": "held",
+    "6": "transferring",
+    "7": "suspended",
+}
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -135,18 +144,10 @@ def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> 
     return campaign_dir
 
 
-def condor_queue_status(campaign_dir: str | Path) -> dict[str, int] | None:
-    campaign_dir = logical_absolute(campaign_dir)
-    submit_path = campaign_dir / "condor" / "submit.json"
-    if not submit_path.exists():
-        return None
-    record = json.loads(submit_path.read_text())
-    cluster_id = record.get("cluster_id")
-    if cluster_id is None:
-        return None
+def _condor_q(arguments: list[str]) -> subprocess.CompletedProcess[str] | None:
     try:
         proc = subprocess.run(
-            ["condor_q", str(cluster_id), "-af", "JobStatus"],
+            ["condor_q", *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -154,19 +155,66 @@ def condor_queue_status(campaign_dir: str | Path) -> dict[str, int] | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    if proc.returncode != 0:
+    return proc if proc.returncode == 0 else None
+
+
+def condor_queue_status(campaign_dir: str | Path) -> dict[str, Any] | None:
+    campaign_dir = logical_absolute(campaign_dir)
+    condor_dir = campaign_dir / "condor"
+    submit_path = condor_dir / "submit.json"
+    if not submit_path.exists():
         return None
-    names = {
-        "1": "idle",
-        "2": "running",
-        "3": "removed",
-        "4": "completed",
-        "5": "held",
-        "6": "transferring",
-        "7": "suspended",
-    }
+    record = json.loads(submit_path.read_text())
+    cluster_id = record.get("cluster_id")
+    if cluster_id is None:
+        return None
+    cluster_id = int(cluster_id)
+
+    dagman_state: str | None = None
+    dagman = _condor_q([str(cluster_id), "-af", "JobStatus"])
+    if dagman is not None:
+        values = [line.strip() for line in dagman.stdout.splitlines() if line.strip()]
+        if values:
+            dagman_state = _STATUS_NAMES.get(values[0], "unknown")
+
+    render_path = condor_dir / "render.json"
+    reverse_nodes: dict[str, str] = {}
+    if render_path.exists():
+        render = json.loads(render_path.read_text())
+        reverse_nodes = {
+            node_name: task_name
+            for task_name, node_name in render.get("node_names", {}).items()
+        }
+
+    nodes: dict[str, dict[str, Any]] = {}
     counts: dict[str, int] = {}
-    for line in proc.stdout.splitlines():
-        key = names.get(line.strip(), "unknown")
-        counts[key] = counts.get(key, 0) + 1
-    return counts
+    node_query = _condor_q([
+        "-constraint",
+        f"DAGManJobId == {cluster_id}",
+        "-af",
+        "DAGNodeName",
+        "JobStatus",
+        "ClusterId",
+        "ProcId",
+    ])
+    if node_query is not None:
+        for line in node_query.stdout.splitlines():
+            fields = line.split()
+            if len(fields) < 4:
+                continue
+            node_name, status_code, child_cluster, proc_id = fields[:4]
+            state = _STATUS_NAMES.get(status_code, "unknown")
+            task_name = reverse_nodes.get(node_name, node_name)
+            nodes[task_name] = {
+                "node": node_name,
+                "state": state,
+                "job_id": f"{child_cluster}.{proc_id}",
+            }
+            counts[state] = counts.get(state, 0) + 1
+
+    return {
+        "cluster_id": cluster_id,
+        "dagman": dagman_state,
+        "counts": counts,
+        "nodes": nodes,
+    }
