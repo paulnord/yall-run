@@ -86,20 +86,52 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     return campaign_dir
 
 
-def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> Path:
-    campaign_dir = render_condor(spec, root)
-    if not submit:
-        return campaign_dir
+def submit_rendered(campaign_dir: str | Path) -> Path:
+    campaign_dir = logical_absolute(campaign_dir)
+    manifest_path = campaign_dir / "campaign.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"not a YAWL campaign: {campaign_dir}")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("backend") != "condor":
+        raise ValueError(f"campaign backend is not condor: {campaign_dir}")
+
     condor_dir = campaign_dir / "condor"
     dag_path = condor_dir / "campaign.dag"
-    proc = subprocess.run(["condor_submit_dag", dag_path.name], cwd=condor_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    record: dict[str, Any] = {"command": ["condor_submit_dag", dag_path.name], "returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
+    if not dag_path.is_file():
+        raise ValueError(f"rendered DAG not found: {dag_path}")
+    submit_path = condor_dir / "submit.json"
+    if submit_path.exists():
+        previous = json.loads(submit_path.read_text())
+        cluster = previous.get("cluster_id")
+        suffix = f" (cluster {cluster})" if cluster is not None else ""
+        raise ValueError(f"campaign has already been submitted{suffix}: {campaign_dir}")
+
+    proc = subprocess.run(
+        ["condor_submit_dag", dag_path.name],
+        cwd=condor_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    record: dict[str, Any] = {
+        "command": ["condor_submit_dag", dag_path.name],
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
     match = _CLUSTER_RE.search(proc.stdout)
     if match:
         record["cluster_id"] = int(match.group(1))
-    _write_json(condor_dir / "submit.json", record)
+    _write_json(submit_path, record)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "condor_submit_dag failed")
+    return campaign_dir
+
+
+def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> Path:
+    campaign_dir = render_condor(spec, root)
+    if submit:
+        submit_rendered(campaign_dir)
     return campaign_dir
 
 
@@ -113,12 +145,26 @@ def condor_queue_status(campaign_dir: str | Path) -> dict[str, int] | None:
     if cluster_id is None:
         return None
     try:
-        proc = subprocess.run(["condor_q", str(cluster_id), "-af", "JobStatus"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
+        proc = subprocess.run(
+            ["condor_q", str(cluster_id), "-af", "JobStatus"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
         return None
-    names = {"1": "idle", "2": "running", "3": "removed", "4": "completed", "5": "held", "6": "transferring", "7": "suspended"}
+    names = {
+        "1": "idle",
+        "2": "running",
+        "3": "removed",
+        "4": "completed",
+        "5": "held",
+        "6": "transferring",
+        "7": "suspended",
+    }
     counts: dict[str, int] = {}
     for line in proc.stdout.splitlines():
         key = names.get(line.strip(), "unknown")
