@@ -101,14 +101,27 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(data, indent=2, sort_keys=True))
             else:
                 print(f"Campaign {data['id']} ({data['backend']})")
+                scheduler = data.get("scheduler") or {}
+                active_nodes = scheduler.get("nodes", {})
                 for task in data["tasks"]:
-                    print(f"  {task['name']:<20} {task['state']:<10} attempts={task['attempts']}")
+                    suffix = ""
+                    active = active_nodes.get(task["name"])
+                    if active:
+                        suffix = f" condor={active['state']} job={active['job_id']}"
+                    print(
+                        f"  {task['name']:<20} {task['state']:<10} "
+                        f"attempts={task['attempts']}{suffix}"
+                    )
                 if data.get("scheduler") is not None:
-                    scheduler = ", ".join(
-                        f"{name}={count}"
-                        for name, count in sorted(data["scheduler"].items())
-                    ) or "no active DAGMan jobs"
-                    print(f"  scheduler: {scheduler}")
+                    dagman = scheduler.get("dagman") or "not-in-queue"
+                    counts = scheduler.get("counts", {})
+                    node_summary = ", ".join(
+                        f"{name}={count}" for name, count in sorted(counts.items())
+                    ) or "no active nodes"
+                    print(
+                        f"  scheduler: dagman={dagman} cluster={scheduler['cluster_id']}; "
+                        f"nodes: {node_summary}"
+                    )
             return 0
 
         if args.command in {"retry", "worker"}:
