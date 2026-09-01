@@ -47,7 +47,7 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     launch_cwd = logical_cwd()
 
     manifest = {
-        "schema": 2,
+        "schema": 3,
         "id": campaign_dir.name,
         "name": spec.name,
         "backend": selected_backend,
@@ -68,9 +68,20 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     for task in spec.tasks:
         task_dir = _task_dir(campaign_dir, task.name)
         (task_dir / "attempts").mkdir(parents=True)
+        task_cwd = logical_absolute(task.cwd, launch_cwd) if task.cwd else launch_cwd
         record = asdict(task)
         record["parents"] = list(task.parents)
-        record["cwd"] = str(logical_absolute(task.cwd, launch_cwd)) if task.cwd else str(launch_cwd)
+        if not isinstance(task.command, str):
+            record["command"] = list(task.command)
+        record["cwd"] = str(task_cwd)
+        record["inputs"] = [
+            {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
+            for item in task.inputs
+        ]
+        record["outputs"] = [
+            {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
+            for item in task.outputs
+        ]
         record["state"] = "pending"
         record["attempts"] = 0
         _write_json(task_dir / "task.json", record)
@@ -121,6 +132,17 @@ def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for name in manifest["tasks"]:
         task = _read_json(_task_dir(campaign_dir, name) / "task.json")
-        tasks.append({"name": name, "state": task["state"], "attempts": task["attempts"], "parents": task.get("parents", [])})
+        tasks.append({
+            "name": name,
+            "state": task["state"],
+            "attempts": task["attempts"],
+            "parents": task.get("parents", []),
+        })
         counts[task["state"]] = counts.get(task["state"], 0) + 1
-    return {"id": manifest["id"], "name": manifest["name"], "backend": manifest.get("backend", "local"), "counts": counts, "tasks": tasks}
+    return {
+        "id": manifest["id"],
+        "name": manifest["name"],
+        "backend": manifest.get("backend", "local"),
+        "counts": counts,
+        "tasks": tasks,
+    }
