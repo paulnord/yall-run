@@ -1,0 +1,23 @@
+[campaign]
+name = "condor-dag-demo"
+backend = "condor"
+
+[condor]
+request_cpus = 1
+request_memory = "1GB"
+request_disk = "1GB"
+
+[[task]]
+name = "left"
+command = "python -c 'print(\"left says hello from Condor\")'"
+retries = 1
+
+[[task]]
+name = "right"
+command = "python -c 'print(\"right says hello from Condor\")'"
+retries = 1
+
+[[task]]
+name = "finish"
+command = "python -c 'print(\"both parents finished\")'"
+parents = ["left", "right"]
