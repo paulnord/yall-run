@@ -5,7 +5,7 @@ import json
 import shutil
 import sys
 
-from .backend import condor_queue_status, submit_condor
+from .backend import condor_queue_status, submit_condor, submit_rendered
 from .campaign import campaign_status, run_task, start_local
 from .model import load_spec
 
@@ -23,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan", help="show tasks without running them")
     plan.add_argument("spec")
 
-    start = sub.add_parser("start", help="create and run or submit a campaign")
+    start = sub.add_parser("start", help="create and run or render a campaign")
     start.add_argument("spec")
     start.add_argument("--root", default="./campaigns")
     start.add_argument("--backend", choices=("local", "condor"))
@@ -32,6 +32,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="for Condor, render campaign/DAG files without submitting",
     )
+
+    submit = sub.add_parser("submit", help="submit an already-rendered Condor campaign")
+    submit.add_argument("campaign_dir")
 
     status = sub.add_parser("status", help="show campaign status")
     status.add_argument("campaign_dir")
@@ -80,6 +83,13 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.dry_run and shutil.which("condor_submit_dag") is None:
                     raise ValueError("condor_submit_dag not found in PATH")
                 cdir = submit_condor(spec, args.root, submit=not args.dry_run)
+            print(cdir)
+            return 0
+
+        if args.command == "submit":
+            if shutil.which("condor_submit_dag") is None:
+                raise ValueError("condor_submit_dag not found in PATH")
+            cdir = submit_rendered(args.campaign_dir)
             print(cdir)
             return 0
 
