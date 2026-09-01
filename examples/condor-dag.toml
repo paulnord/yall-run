@@ -9,15 +9,15 @@ request_disk = "1GB"
 
 [[task]]
 name = "left"
-command = "python -c 'print(\"left says hello from Condor\")'"
+command = ["python3", "-c", "print('left says hello from Condor')"]
 retries = 1
 
 [[task]]
 name = "right"
-command = "python -c 'print(\"right says hello from Condor\")'"
+command = ["python3", "-c", "print('right says hello from Condor')"]
 retries = 1
 
 [[task]]
 name = "finish"
-command = "python -c 'print(\"both parents finished\")'"
+command = ["python3", "-c", "print('both parents finished')"]
 parents = ["left", "right"]
