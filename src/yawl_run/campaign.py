@@ -11,7 +11,7 @@ import subprocess
 import sys
 from typing import Any
 
-from .model import CampaignSpec, TaskSpec
+from .model import CampaignSpec
 
 
 def _utc_now() -> str:
@@ -38,15 +38,17 @@ def _task_dir(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / task_name
 
 
-def create_campaign(spec: CampaignSpec, root: str | Path) -> Path:
+def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = None) -> Path:
     root = Path(root).resolve()
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
+    selected_backend = backend or spec.backend
 
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "id": campaign_dir.name,
         "name": spec.name,
+        "backend": selected_backend,
         "created_at": _utc_now(),
         "spec_source": str(spec.source),
         "tasks": [task.name for task in spec.tasks],
@@ -68,6 +70,7 @@ def create_campaign(spec: CampaignSpec, root: str | Path) -> Path:
         (tdir / "attempts").mkdir(parents=True)
         _write_json(tdir / "task.json", {
             **asdict(task),
+            "parents": list(task.parents),
             "state": "pending",
             "attempts": 0,
         })
@@ -139,10 +142,39 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     return proc.returncode
 
 
-def start_campaign(spec: CampaignSpec, root: str | Path) -> Path:
-    campaign_dir = create_campaign(spec, root)
-    for task in spec.tasks:
-        run_task(campaign_dir, task.name)
+def start_local(spec: CampaignSpec, root: str | Path) -> Path:
+    campaign_dir = create_campaign(spec, root, backend="local")
+    by_name = {task.name: task for task in spec.tasks}
+    remaining = set(by_name)
+
+    while remaining:
+        progressed = False
+        for name in list(remaining):
+            task = by_name[name]
+            parent_states = {
+                parent: _read_json(_task_dir(campaign_dir, parent) / "task.json")["state"]
+                for parent in task.parents
+            }
+            if any(state in {"failed", "blocked"} for state in parent_states.values()):
+                record = _read_json(_task_dir(campaign_dir, name) / "task.json")
+                record["state"] = "blocked"
+                _write_json(_task_dir(campaign_dir, name) / "task.json", record)
+                remaining.remove(name)
+                progressed = True
+                continue
+            if not all(state == "completed" for state in parent_states.values()):
+                continue
+
+            for _ in range(task.retries + 1):
+                rc = run_task(campaign_dir, name)
+                if rc == 0:
+                    break
+            remaining.remove(name)
+            progressed = True
+
+        if not progressed:
+            raise RuntimeError("campaign dependency graph made no progress")
+
     return campaign_dir
 
 
@@ -153,6 +185,17 @@ def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for name in manifest["tasks"]:
         task = _read_json(_task_dir(campaign_dir, name) / "task.json")
-        tasks.append({"name": name, "state": task["state"], "attempts": task["attempts"]})
+        tasks.append({
+            "name": name,
+            "state": task["state"],
+            "attempts": task["attempts"],
+            "parents": task.get("parents", []),
+        })
         counts[task["state"]] = counts.get(task["state"], 0) + 1
-    return {"id": manifest["id"], "name": manifest["name"], "counts": counts, "tasks": tasks}
+    return {
+        "id": manifest["id"],
+        "name": manifest["name"],
+        "backend": manifest.get("backend", "local"),
+        "counts": counts,
+        "tasks": tasks,
+    }
