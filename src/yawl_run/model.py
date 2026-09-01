@@ -2,12 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Union
+
+from .paths import logical_absolute
 
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.9 and 3.10
     import tomli as tomllib
+
+
+Command = Union[str, Tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class FileRef:
+    path: str
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -16,15 +27,18 @@ class CondorSpec:
     request_memory: str = "2GB"
     request_disk: str = "2GB"
     getenv: bool = True
+    wrapper: str | None = None
 
 
 @dataclass(frozen=True)
 class TaskSpec:
     name: str
-    command: str
+    command: Command
     cwd: str | None = None
     parents: Tuple[str, ...] = ()
     retries: int = 0
+    inputs: Tuple[FileRef, ...] = ()
+    outputs: Tuple[FileRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,8 +77,47 @@ def _validate_graph(tasks: list[TaskSpec]) -> None:
         visit(name)
 
 
+def _parse_command(value: object, task_name: str) -> Command:
+    if isinstance(value, str):
+        command = value.strip()
+        if not command:
+            raise ValueError(f"task {task_name!r} needs a command")
+        return command
+    if isinstance(value, list):
+        command = tuple(str(item) for item in value)
+        if not command or not command[0]:
+            raise ValueError(f"task {task_name!r} needs a command")
+        return command
+    raise ValueError(f"task {task_name!r} command must be a string or array")
+
+
+def _parse_refs(value: object, task_name: str, field: str) -> Tuple[FileRef, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"task {task_name!r} {field} must be an array")
+    refs: list[FileRef] = []
+    for item in value:
+        if isinstance(item, str):
+            if not item:
+                raise ValueError(f"task {task_name!r} has an empty {field} path")
+            refs.append(FileRef(path=item))
+            continue
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"task {task_name!r} {field} entries must be paths or tables"
+            )
+        path = str(item.get("path", "")).strip()
+        if not path:
+            raise ValueError(f"task {task_name!r} has a {field} entry without path")
+        role_value = item.get("role")
+        role = str(role_value).strip() if role_value is not None else None
+        refs.append(FileRef(path=path, role=role or None))
+    return tuple(refs)
+
+
 def load_spec(path: str | Path) -> CampaignSpec:
-    source = Path(path).resolve()
+    source = logical_absolute(path)
     with source.open("rb") as fh:
         data = tomllib.load(fh)
 
@@ -81,11 +134,13 @@ def load_spec(path: str | Path) -> CampaignSpec:
     request_cpus = int(raw_condor.get("request_cpus", 1))
     if request_cpus < 1:
         raise ValueError("[condor].request_cpus must be positive")
+    wrapper_value = raw_condor.get("wrapper")
     condor = CondorSpec(
         request_cpus=request_cpus,
         request_memory=str(raw_condor.get("request_memory", "2GB")),
         request_disk=str(raw_condor.get("request_disk", "2GB")),
         getenv=bool(raw_condor.get("getenv", True)),
+        wrapper=str(wrapper_value) if wrapper_value else None,
     )
 
     raw_tasks = data.get("task", [])
@@ -96,26 +151,28 @@ def load_spec(path: str | Path) -> CampaignSpec:
     tasks: list[TaskSpec] = []
     for item in raw_tasks:
         task_name = str(item.get("name", "")).strip()
-        command = str(item.get("command", "")).strip()
         if not task_name:
             raise ValueError("each [[task]] needs a name")
         if task_name in seen:
             raise ValueError(f"duplicate task name: {task_name}")
-        if not command:
-            raise ValueError(f"task {task_name!r} needs a command")
+        command = _parse_command(item.get("command"), task_name)
         retries = int(item.get("retries", 0))
         if retries < 0:
             raise ValueError(f"task {task_name!r} retries may not be negative")
         parents = tuple(str(value) for value in item.get("parents", []))
+        inputs = _parse_refs(item.get("inputs"), task_name, "inputs")
+        outputs = _parse_refs(item.get("outputs"), task_name, "outputs")
         seen.add(task_name)
         cwd = item.get("cwd")
         tasks.append(
             TaskSpec(
-                task_name,
-                command,
-                str(cwd) if cwd else None,
-                parents,
-                retries,
+                name=task_name,
+                command=command,
+                cwd=str(cwd) if cwd else None,
+                parents=parents,
+                retries=retries,
+                inputs=inputs,
+                outputs=outputs,
             )
         )
 
