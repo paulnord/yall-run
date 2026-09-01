@@ -1,3 +1,3 @@
 """YAWL-run: Yet Another Workflow Layer."""
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
