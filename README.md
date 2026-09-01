@@ -41,7 +41,7 @@ Those belong to execution systems such as HTCondor/DAGMan, Slurm, or other workf
 
 This repository starts with a local backend so the campaign model can be exercised without a cluster. An HTCondor backend is the obvious next adapter.
 
-Requires Python 3.11+.
+Requires Python 3.9+.
 
 ```bash
 python -m pip install -e .
