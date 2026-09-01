@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import sys
 
@@ -51,6 +52,12 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _display_command(command: object) -> str:
+    if isinstance(command, str):
+        return command
+    return shlex.join(str(item) for item in command)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -69,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
                 if task.retries:
                     extras.append(f"retries={task.retries}")
                 suffix = f" [{' '.join(extras)}]" if extras else ""
-                print(f"  {task.name}: {task.command}{suffix}")
+                print(f"  {task.name}: {_display_command(task.command)}{suffix}")
             return 0
 
         if args.command == "start":
