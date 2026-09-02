@@ -7,9 +7,11 @@ import sys
 from yawl_run.model import load_spec
 
 
-def test_golomb_example_graph():
+def test_golomb_example_graph(monkeypatch):
     root = Path(__file__).resolve().parents[1]
-    spec = load_spec(root / "examples" / "golomb" / "Yawlfile")
+    example = root / "examples" / "golomb"
+    monkeypatch.chdir(example)
+    spec = load_spec("Yawlfile")
 
     assert spec.name == "golomb-11-branch-and-bound"
     assert len(spec.tasks) == 11
