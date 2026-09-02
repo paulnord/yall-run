@@ -4,9 +4,7 @@ backend local
 # Eight independent search shards share a decreasing incumbent.  A shorter
 # ruler found by one task can therefore tighten pruning in the others.
 prepare:
-    @output work golomb-work
     @output incumbent golomb-work/incumbent.json
-    mkdir -p @output.work
     python3 init_incumbent.py --order 11 --limit 80 @output.incumbent
 
 search-{id}: prepare
