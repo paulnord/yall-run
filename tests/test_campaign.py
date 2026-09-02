@@ -13,9 +13,20 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     campaign_dir = create_campaign(spec, tmp_path, backend="local")
 
     assert not list(campaign_dir.glob("*_attempt_*"))
+    assert not (campaign_dir / "provenance.json").exists()
+    assert not (campaign_dir / "tasks").exists()
     assert campaign_status(campaign_dir)["counts"] == {"pending": 3}
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["schema"] == 7
     assert manifest["execution"] == {"local": {"jobs": 1}}
+    assert manifest["task_order"] == ["left", "right", "finish"]
+    assert manifest["tasks"]["finish"]["parents"] == ["left", "right"]
+    assert manifest["creation"]["cwd"]
+    assert manifest["creation"]["hostname"] is not None
+    assert json.loads((campaign_dir / "state" / "left.json").read_text()) == {
+        "attempts": 0,
+        "state": "pending",
+    }
 
     start_local(campaign_dir)
     output = capsys.readouterr().out
