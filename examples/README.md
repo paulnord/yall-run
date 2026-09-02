@@ -1,6 +1,6 @@
 # yawl-run examples
 
-These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler example adds a more realistic combinatorial search.
+These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler and MCMC examples add more realistic CPU-bound and statistical workloads.
 
 | Example | Calculation | Workflow shape | Numerical character |
 | --- | --- | --- | --- |
@@ -10,6 +10,7 @@ These examples are small enough to inspect by hand but are chosen to exercise di
 | [`sqrt2-binomial`](sqrt2-binomial/) | binomial series for $\sqrt{2}$ | parallel chunks, fan-in, numerical check | converges at the boundary of the binomial series |
 | [`e`](e/) | $\sum 1/n!$ | parallel leaves and hierarchical reduction | very rapid convergence |
 | [`golomb`](golomb/) | optimal 11-mark Golomb ruler | parallel branch-and-bound with shared incumbent | CPU-bound search with uneven branches and cooperative pruning |
+| [`mcmc`](mcmc/) | Bayesian Langau fit with RooStats | eight independent chains, combine, diagnose, plot | stochastic ROOT workload with convergence diagnostics |
 
 ## pi: useful workflow, poor algorithm
 
@@ -60,5 +61,11 @@ converges extremely rapidly because $n!$ grows so quickly. Its terms can be spli
 The [`golomb`](golomb/) example searches for an optimal 11-mark ruler with all pairwise distances distinct. Eight CPU-bound search shards explore disjoint parts of the tree while sharing a monotonically decreasing incumbent. A good solution found by one worker can therefore prune work in the others even though the search tasks have no yawl dependency edges between them.
 
 The final reduction is intentionally stronger than merely selecting the shortest ruler found: it verifies that every shard exhausted the portion of its search space required to rule out anything shorter. This makes the example useful for distinguishing a successful empty branch from a failed task and for testing uneven, interacting parallel workloads.
+
+## PyROOT MCMC: independent stochastic chains
+
+The [`mcmc`](mcmc/) example generates a synthetic Landau-convolved-with-Gaussian spectrum with RooFit and runs eight independent `RooStats::MCMCCalculator` chains. Parallelism comes from running statistically independent chains at the same time rather than trying to split one serial Metropolis-Hastings chain.
+
+The chain ROOT files are combined after burn-in, checked with split-$\hat R$, and turned into ROOT corner, trace, and posterior-predictive plots. This example also demonstrates reproducible random seeds and native scientific output files in a workflow whose computation is performed by an external analysis framework rather than by yawl-run itself.
 
 Each example has its own README with run instructions and more detail about why that calculation or search is useful for testing yawl-run.

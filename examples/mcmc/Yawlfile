@@ -1,0 +1,39 @@
+campaign pyroot-langau-mcmc
+backend local
+
+# Build one synthetic Landau x Gaussian data set and a RooStats ModelConfig.
+prepare:
+    @output model mcmc-work/model.root
+    python3 prepare.py @output.model
+
+# Each chain is a genuine RooStats::MCMCCalculator run with its own seed.
+chain-{id}: prepare
+    @each config chains/chain-{id}.txt
+    @input model mcmc-work/model.root
+    @output chain mcmc-work/chain-{id}.root
+    %cpus 1
+    %memory 1GB
+    python3 run_chain.py @input.model @input.config @output.chain
+
+combine: chain-{id}
+    @input chain mcmc-work/chain-{id}.root
+    @output posterior mcmc-work/posterior.root
+    python3 combine.py @input.chain -o @output.posterior
+
+diagnose: combine
+    @input posterior mcmc-work/posterior.root
+    @output diagnostics mcmc-work/diagnostics.json
+    @output summary mcmc-work/summary.txt
+    python3 diagnose.py @input.posterior @output.diagnostics @output.summary
+
+plots: diagnose
+    @input model mcmc-work/model.root
+    @input posterior mcmc-work/posterior.root
+    @input diagnostics mcmc-work/diagnostics.json
+    @output corner mcmc-work/corner.pdf
+    @output corner_png mcmc-work/corner.png
+    @output traces mcmc-work/traces.pdf
+    @output traces_png mcmc-work/traces.png
+    @output predictive mcmc-work/posterior_predictive.pdf
+    @output predictive_png mcmc-work/posterior_predictive.png
+    python3 plot.py @input.model @input.posterior @input.diagnostics mcmc-work
