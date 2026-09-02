@@ -88,13 +88,7 @@ def create_campaign(
     backend: str | None = None,
     local_jobs: int | None = None,
 ) -> Path:
-    root = logical_absolute(root)
-    campaign_dir = root / _campaign_id(spec)
-    campaign_dir.mkdir(parents=True, exist_ok=False)
-    (campaign_dir / "tasks").mkdir()
     selected_backend = backend or spec.backend
-    launch_cwd = logical_cwd()
-
     if selected_backend == "local":
         jobs = 1 if local_jobs is None else local_jobs
         if jobs < 1:
@@ -106,6 +100,12 @@ def create_campaign(
         execution = {"condor": {}}
     else:
         raise ValueError(f"unknown campaign backend: {selected_backend}")
+
+    root = logical_absolute(root)
+    campaign_dir = root / _campaign_id(spec)
+    campaign_dir.mkdir(parents=True, exist_ok=False)
+    (campaign_dir / "tasks").mkdir()
+    launch_cwd = logical_cwd()
 
     manifest = {
         "schema": 6,
@@ -197,6 +197,12 @@ def start_local(campaign_dir: str | Path) -> Path:
     if load1 is not None:
         geek.append(f"load1={load1:.2f}")
     print("[local] " + " ".join(geek), flush=True)
+    if cpus is not None and jobs > cpus:
+        print(
+            f"[local] warning jobs={jobs} exceeds cpus_available={cpus}; "
+            "the operating system will time-slice runnable tasks",
+            flush=True,
+        )
 
     task_names = list(manifest["tasks"])
     remaining = set(task_names)
