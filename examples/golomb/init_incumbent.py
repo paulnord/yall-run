@@ -20,6 +20,7 @@ def main() -> int:
     if args.limit <= args.order - 1:
         raise ValueError("limit is too small for the requested order")
 
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "schema": 1,
         "order": args.order,
