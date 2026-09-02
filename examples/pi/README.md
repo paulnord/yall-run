@@ -16,10 +16,10 @@ yawl-run plan
 yawl-run start --dry-run
 ```
 
-The last command renders a Condor/DAGMan campaign without submitting it. Submit the exact rendered campaign with:
+The last command renders a Condor/DAGMan campaign without submitting it. It prints the exact campaign directory. Submit that rendered campaign with:
 
 ```bash
-yawl-run submit ../../campaigns/<campaign-id>
+yawl-run submit campaigns/<campaign-id>
 ```
 
 After completion, the combined estimate is in:
