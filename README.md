@@ -69,6 +69,8 @@ yawl-run plan
 yawl-run create --campaigns-dir ./campaigns
 ```
 
+`Yawlfile` is the canonical default filename, with that capitalization. On case-sensitive filesystems, `yawlfile` and `YAWLFILE` are different names. A differently named workflow file can always be supplied explicitly.
+
 `create` prints the new campaign directory but runs nothing. Start that exact campaign with:
 
 ```bash
@@ -274,7 +276,7 @@ YAWL_ATTEMPT
 YAWL_PROVENANCE
 ```
 
-`YAWL_PROVENANCE` points at the attempt's launch-provenance JSON. Domain-specific programs can embed that record in their own output format. For example, LFHCal can copy it into a ROOT file without teaching generic yawl-run anything about ROOT.
+`YAWL_PROVENANCE` points at the attempt's launch-provenance JSON. Application-specific programs may copy or embed that record into their own native output formats without teaching generic yawl-run anything about those formats.
 
 After the command finishes, `attempt.json` records the return code, finish time, timing, stdout/stderr locations, and observed output metadata. Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
 
@@ -316,7 +318,7 @@ Both experimental adapters assume the campaign directory and declared paths are 
 
 ## Execution wrapper
 
-A site or container wrapper can be configured without teaching yawl-run anything detector-specific:
+A site or container wrapper can be configured without teaching yawl-run anything application-specific:
 
 ```text
 backend condor
@@ -330,7 +332,7 @@ When the campaign is created, yawl-run copies the wrapper into `environment/`, r
 
 ## Design rule
 
-If a feature can be described without mentioning LFHCal, HGCROC, a particular run number, ROOT histograms, or detector-specific conventions, it may belong in yawl-run. Otherwise it belongs in the analysis-specific layer.
+A feature belongs in yawl-run when it expresses a portable workflow concept: tasks, dependencies, attempts, resources, provenance, execution environment, or scheduler adaptation. Details that only make sense for one application, data format, experiment, analysis package, or site's scientific conventions belong in the application-specific layer instead.
 
 ## Status
 
