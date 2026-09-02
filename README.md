@@ -66,17 +66,51 @@ There is one launch operation: `start CAMPAIGN_DIR`. Creating another run means 
 
 There is also one campaign language: Yawlfile syntax. Old TOML campaign files are not supported.
 
-## Parallelism: `-j`
+## Local parallelism: `-j`
 
-`-j N` limits the number of yawl tasks active at once:
+`-j N` is a **local-backend creation option**. It freezes the maximum number of dependency-ready yawl tasks that may run concurrently:
 
 ```bash
-yawl-run start ./campaigns/<campaign-id> -j 4
+yawl-run create --backend local -j 4
+# use the printed campaign directory
+yawl-run start ./campaigns/<campaign-id>
 ```
 
-For the local backend, yawl runs up to `N` dependency-ready tasks concurrently. Local execution defaults to `-j 1` when no limit is given.
+Local execution defaults to one active task when `-j` is omitted. `-j` is not a CPU reservation for the yawl coordinator. The coordinator remains a lightweight process while it launches and reconciles up to `N` task processes.
 
-For Condor, yawl passes the limit to DAGMan when the frozen campaign is started. Without `-j`, Condor/DAGMan uses its normal scheduler limits.
+If `N` exceeds the CPUs available to the local process, yawl prints a warning and the operating system time-slices runnable tasks. This is allowed because `-j` controls task concurrency, not processor allocation.
+
+`-j` is intentionally invalid for Condor campaigns. Condor processor requests are a different concept and belong to the task resource policy in the Yawlfile:
+
+```text
+heavy-analysis:
+    %cpus 4
+    %memory 8GB
+    ./Analyze input.root
+```
+
+The Condor backend maps `%cpus 4` to `request_cpus = 4`. Local yawl records `%cpus` as task metadata but does not currently use it as a local scheduling weight.
+
+## Local progress output
+
+Local `start` emits concise orchestration status to standard output while task stdout/stderr remain in their attempt directories. A run looks roughly like:
+
+```text
+[local] host=starsub01 pid=12345 jobs=4 cpus_available=64 load1=3.18
+[start] prepare
+[done ] prepare attempt=1 elapsed=0.02s
+[start] partial-000
+[start] partial-001
+[done ] partial-000 attempt=1 elapsed=1.31s
+...
+[local] finished completed=10 failed=0 blocked=0
+```
+
+Failures include the exit status and the corresponding stderr log path. A failed local campaign causes `yawl-run start` to exit nonzero, which makes ordinary shell use natural:
+
+```bash
+yawl-run start ./campaigns/<campaign-id> > yawl.log 2>&1 &
+```
 
 ## Data is `@`, execution policy is `%`
 
@@ -149,25 +183,25 @@ pi = 4 * (1 - 1/3 + 1/5 - 1/7 + ...)
 
 in eight independent chunks. Every worker runs the same `partial_pi.py` program. The final `sum` task waits for the whole `partial-{chunk}` family and receives all partial result files through one named input.
 
+For Condor:
+
 ```bash
 cd examples/pi
 yawl-run validate
 yawl-run plan
 yawl-run create
-```
-
-The Yawlfile declares `backend condor`, so `create` freezes the campaign and renders its DAG without submitting anything. Start the printed campaign directory with:
-
-```bash
-yawl-run start campaigns/<campaign-id> -j 4
-```
-
-For a local smoke test, create a separate local campaign from the same Yawlfile:
-
-```bash
-yawl-run create --backend local
 # use the printed campaign directory
-yawl-run start campaigns/<local-campaign-id> -j 4
+yawl-run start campaigns/<campaign-id>
+```
+
+The Yawlfile declares `backend condor`, so `create` freezes the campaign and renders its DAG without submitting anything. `start` submits that exact frozen campaign.
+
+For a local smoke test, create a separate local campaign from the same Yawlfile and freeze the desired local concurrency at creation time:
+
+```bash
+yawl-run create --backend local -j 4
+# use the printed campaign directory
+yawl-run start campaigns/<local-campaign-id>
 cat pi-work/pi.txt
 ```
 
@@ -228,6 +262,8 @@ Inspect that campaign if desired, then launch that exact artifact:
 yawl-run start ./campaigns/<campaign-id>
 ```
 
+`start` streams `condor_submit_dag` output to the terminal instead of hiding it. A failed Condor submission does not mark the campaign as successfully started.
+
 A campaign can be started only once. To run the workflow again, create a new campaign from the Yawlfile.
 
 Check state with:
@@ -258,4 +294,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-0.6: explicit Yawlfile -> campaign -> start lifecycle, one launch path, local/Condor `-j` throttling, flattened attempt directories, pattern-task fan-out/fan-in, and portable per-attempt launch provenance.
+0.6.1: explicit Yawlfile -> campaign -> start lifecycle, local-only `-j` frozen at campaign creation, local progress/error reporting, flattened attempt directories, pattern-task fan-out/fan-in, Condor resource requests, and portable per-attempt launch provenance.
