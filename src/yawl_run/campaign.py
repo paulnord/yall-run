@@ -350,6 +350,7 @@ def start_local(campaign_dir: str | Path) -> Path:
     task_names = _task_names(manifest)
     remaining = set(task_names)
     running: dict[Future[int], tuple[str, float]] = {}
+    reconciled: set[str] = set()
 
     with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="yawl") as pool:
         while remaining or running:
@@ -359,9 +360,12 @@ def start_local(campaign_dir: str | Path) -> Path:
                 if name not in remaining or len(running) >= jobs:
                     continue
                 task = _task_definition(campaign_dir, manifest, name)
+                parents = list(task.get("parents", []))
+                if not all(parent in reconciled for parent in parents):
+                    continue
                 parent_states = {
                     parent: _task_state(campaign_dir, manifest, parent)["state"]
-                    for parent in task.get("parents", [])
+                    for parent in parents
                 }
                 if any(state in {"failed", "blocked"} for state in parent_states.values()):
                     state = _task_state(campaign_dir, manifest, name)
@@ -369,6 +373,7 @@ def start_local(campaign_dir: str | Path) -> Path:
                     _write_task_state(campaign_dir, manifest, name, state)
                     remaining.remove(name)
                     print(f"[block] {name} parent failed", flush=True)
+                    reconciled.add(name)
                     progressed = True
                     continue
                 if not all(state == "completed" for state in parent_states.values()):
@@ -403,6 +408,7 @@ def start_local(campaign_dir: str | Path) -> Path:
                             f"elapsed={elapsed:.2f}s{timing_text} stderr={stderr}",
                             flush=True,
                         )
+                    reconciled.add(name)
                 progressed = True
 
             if not progressed and remaining:
