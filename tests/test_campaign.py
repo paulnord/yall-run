@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shlex
 import sys
 
 from yawl_run.campaign import campaign_status, start_campaign
@@ -8,27 +9,31 @@ from yawl_run.model import load_spec
 
 def test_local_campaign(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    spec = load_spec(root / "examples" / "hello.toml")
+    spec = load_spec(root / "examples" / "hello.yawl")
     campaign_dir = start_campaign(spec, tmp_path)
     status = campaign_status(campaign_dir)
-    assert status["counts"] == {"completed": 2}
+    assert status["counts"] == {"completed": 3}
     assert all(t["attempts"] == 1 for t in status["tasks"])
 
 
 def test_argv_command_and_file_provenance(tmp_path):
     input_path = tmp_path / "input.txt"
     input_path.write_text("hello\n")
-    spec_file = tmp_path / "provenance.toml"
+    script = tmp_path / "transform.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[2]).write_text(Path(sys.argv[1]).read_text().upper())\n"
+    )
+    spec_file = tmp_path / "Yawlfile"
     spec_file.write_text(
-        "[campaign]\n"
-        "name = \"provenance-test\"\n\n"
-        "[[task]]\n"
-        "name = \"transform\"\n"
-        f"cwd = {json.dumps(str(tmp_path))}\n"
-        f"command = [{json.dumps(sys.executable)}, \"-c\", "
-        "\"from pathlib import Path; Path('output.txt').write_text(Path('input.txt').read_text().upper())\"]\n"
-        "inputs = [{role = \"source\", path = \"input.txt\"}]\n"
-        "outputs = [{role = \"result\", path = \"output.txt\"}]\n"
+        "campaign provenance-test\n\n"
+        "transform:\n"
+        f"    %cwd {shlex.quote(str(tmp_path))}\n"
+        "    @input source input.txt\n"
+        "    @output result output.txt\n"
+        f"    {shlex.quote(sys.executable)} {shlex.quote(str(script))} "
+        "@input.source @output.result\n"
     )
     spec = load_spec(spec_file)
     campaign_dir = start_campaign(spec, tmp_path / "campaigns")
