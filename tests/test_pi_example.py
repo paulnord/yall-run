@@ -2,7 +2,7 @@ import math
 from pathlib import Path
 import shutil
 
-from yawl_run.campaign import campaign_status, start_campaign
+from yawl_run.campaign import campaign_status, create_campaign, start_local
 from yawl_run.model import load_spec
 
 
@@ -19,7 +19,8 @@ def test_pi_map_reduce_example(tmp_path, monkeypatch):
     assert len(spec.tasks[-1].parents) == 8
     assert len(spec.tasks[-1].inputs) == 8
 
-    campaign_dir = start_campaign(spec, tmp_path / "campaigns")
+    campaign_dir = create_campaign(spec, tmp_path / "campaigns", backend="local")
+    start_local(campaign_dir, jobs=4)
     status = campaign_status(campaign_dir)
     assert status["counts"] == {"completed": 10}
 
