@@ -41,8 +41,76 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def _task_path(campaign_dir: Path, task_name: str) -> Path:
+def _legacy_task_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / f"{task_name}.json"
+
+
+def _state_path(campaign_dir: Path, task_name: str) -> Path:
+    return campaign_dir / "state" / f"{task_name}.json"
+
+
+def _task_names(manifest: dict[str, Any]) -> list[str]:
+    order = manifest.get("task_order")
+    if isinstance(order, list):
+        return [str(name) for name in order]
+    tasks = manifest.get("tasks", [])
+    if isinstance(tasks, dict):
+        return [str(name) for name in tasks]
+    return [str(name) for name in tasks]
+
+
+def _task_definition(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> dict[str, Any]:
+    tasks = manifest.get("tasks", {})
+    if isinstance(tasks, dict):
+        task = tasks.get(task_name)
+        if not isinstance(task, dict):
+            raise ValueError(f"unknown task: {task_name}")
+        return task
+    path = _legacy_task_path(campaign_dir, task_name)
+    if not path.is_file():
+        raise ValueError(f"unknown task: {task_name}")
+    return _read_json(path)
+
+
+def _task_state(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> dict[str, Any]:
+    path = _state_path(campaign_dir, task_name)
+    if path.is_file():
+        return _read_json(path)
+    legacy = _legacy_task_path(campaign_dir, task_name)
+    if legacy.is_file():
+        task = _read_json(legacy)
+        state = {
+            "state": task.get("state", "pending"),
+            "attempts": int(task.get("attempts", 0)),
+        }
+        if "last_returncode" in task:
+            state["last_returncode"] = task["last_returncode"]
+        return state
+    _task_definition(campaign_dir, manifest, task_name)
+    return {"state": "pending", "attempts": 0}
+
+
+def _write_task_state(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+    state: dict[str, Any],
+) -> None:
+    if isinstance(manifest.get("tasks"), dict):
+        _write_json(_state_path(campaign_dir, task_name), state)
+        return
+    legacy_path = _legacy_task_path(campaign_dir, task_name)
+    task = _read_json(legacy_path)
+    task.update(state)
+    _write_json(legacy_path, task)
 
 
 def campaign_manifest(campaign_dir: str | Path) -> tuple[Path, dict[str, Any]]:
@@ -62,9 +130,9 @@ def begin_campaign(campaign_dir: str | Path) -> Path:
         raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
 
     previously_attempted = []
-    for name in manifest.get("tasks", []):
-        task = _read_json(_task_path(campaign_dir, name))
-        if task.get("state", "pending") != "pending" or int(task.get("attempts", 0)) > 0:
+    for name in _task_names(manifest):
+        state = _task_state(campaign_dir, manifest, name)
+        if state.get("state", "pending") != "pending" or int(state.get("attempts", 0)) > 0:
             previously_attempted.append(name)
     if previously_attempted:
         names = ", ".join(previously_attempted[:3])
@@ -104,30 +172,11 @@ def create_campaign(
     root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
-    (campaign_dir / "tasks").mkdir()
+    (campaign_dir / "state").mkdir()
     launch_cwd = logical_cwd()
+    created_at = _utc_now()
 
-    manifest = {
-        "schema": 6,
-        "id": campaign_dir.name,
-        "name": spec.name,
-        "backend": selected_backend,
-        "execution": execution,
-        "created_at": _utc_now(),
-        "yawl_version": __version__,
-        "spec_source": str(spec.source),
-        "tasks": [task.name for task in spec.tasks],
-    }
-    _write_json(campaign_dir / "campaign.json", manifest)
-    _write_json(campaign_dir / "provenance.json", {
-        "created_at": _utc_now(),
-        "hostname": platform.node(),
-        "platform": platform.platform(),
-        "python": sys.version,
-        "cwd": str(launch_cwd),
-        "argv": sys.argv,
-    })
-
+    frozen_tasks: dict[str, Any] = {}
     for task in spec.tasks:
         task_cwd = logical_absolute(task.cwd, launch_cwd) if task.cwd else launch_cwd
         record = asdict(task)
@@ -143,15 +192,41 @@ def create_campaign(
             {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
             for item in task.outputs
         ]
-        record["state"] = "pending"
-        record["attempts"] = 0
-        _write_json(_task_path(campaign_dir, task.name), record)
+        frozen_tasks[task.name] = record
+
+    manifest = {
+        "schema": 7,
+        "id": campaign_dir.name,
+        "name": spec.name,
+        "backend": selected_backend,
+        "execution": execution,
+        "created_at": created_at,
+        "yawl_version": __version__,
+        "spec_source": str(spec.source),
+        "task_order": [task.name for task in spec.tasks],
+        "tasks": frozen_tasks,
+        "creation": {
+            "hostname": platform.node(),
+            "platform": platform.platform(),
+            "python": sys.version,
+            "cwd": str(launch_cwd),
+            "argv": list(sys.argv),
+        },
+    }
+    _write_json(campaign_dir / "campaign.json", manifest)
+
+    for task in spec.tasks:
+        _write_json(_state_path(campaign_dir, task.name), {
+            "state": "pending",
+            "attempts": 0,
+        })
 
     return campaign_dir
 
 
 def _run_with_retries(campaign_dir: Path, task_name: str) -> int:
-    task = _read_json(_task_path(campaign_dir, task_name))
+    _, manifest = campaign_manifest(campaign_dir)
+    task = _task_definition(campaign_dir, manifest, task_name)
     result = 1
     for _ in range(int(task.get("retries", 0)) + 1):
         result = run_task(campaign_dir, task_name)
@@ -237,7 +312,7 @@ def start_local(campaign_dir: str | Path) -> Path:
             flush=True,
         )
 
-    task_names = list(manifest["tasks"])
+    task_names = _task_names(manifest)
     remaining = set(task_names)
     running: dict[Future[int], tuple[str, float]] = {}
 
@@ -248,14 +323,15 @@ def start_local(campaign_dir: str | Path) -> Path:
             for name in task_names:
                 if name not in remaining or len(running) >= jobs:
                     continue
-                task = _read_json(_task_path(campaign_dir, name))
+                task = _task_definition(campaign_dir, manifest, name)
                 parent_states = {
-                    parent: _read_json(_task_path(campaign_dir, parent))["state"]
+                    parent: _task_state(campaign_dir, manifest, parent)["state"]
                     for parent in task.get("parents", [])
                 }
                 if any(state in {"failed", "blocked"} for state in parent_states.values()):
-                    task["state"] = "blocked"
-                    _write_json(_task_path(campaign_dir, name), task)
+                    state = _task_state(campaign_dir, manifest, name)
+                    state["state"] = "blocked"
+                    _write_task_state(campaign_dir, manifest, name, state)
                     remaining.remove(name)
                     print(f"[block] {name} parent failed", flush=True)
                     progressed = True
@@ -275,8 +351,8 @@ def start_local(campaign_dir: str | Path) -> Path:
                     name, started = running.pop(future)
                     result = future.result()
                     elapsed = time.monotonic() - started
-                    task = _read_json(_task_path(campaign_dir, name))
-                    attempt = int(task.get("attempts", 0))
+                    state = _task_state(campaign_dir, manifest, name)
+                    attempt = int(state.get("attempts", 0))
                     timing = _attempt_timing(campaign_dir, name, attempt)
                     timing_text = _timing_suffix(timing)
                     if result == 0:
@@ -317,15 +393,16 @@ def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     tasks = []
     counts: dict[str, int] = {}
-    for name in manifest["tasks"]:
-        task = _read_json(_task_path(campaign_dir, name))
+    for name in _task_names(manifest):
+        definition = _task_definition(campaign_dir, manifest, name)
+        state = _task_state(campaign_dir, manifest, name)
         tasks.append({
             "name": name,
-            "state": task["state"],
-            "attempts": task["attempts"],
-            "parents": task.get("parents", []),
+            "state": state["state"],
+            "attempts": state["attempts"],
+            "parents": definition.get("parents", []),
         })
-        counts[task["state"]] = counts.get(task["state"], 0) + 1
+        counts[state["state"]] = counts.get(state["state"], 0) + 1
     return {
         "id": manifest["id"],
         "name": manifest["name"],
