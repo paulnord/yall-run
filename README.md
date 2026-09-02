@@ -66,7 +66,7 @@ Save that as `Yawlfile`, then:
 ```bash
 yawl-run validate
 yawl-run plan
-yawl-run create --root ./campaigns
+yawl-run create --campaigns-dir ./campaigns
 ```
 
 `create` prints the new campaign directory but runs nothing. Start that exact campaign with:
@@ -74,6 +74,8 @@ yawl-run create --root ./campaigns
 ```bash
 yawl-run start ./campaigns/<campaign-id>
 ```
+
+`--campaigns-dir` names the directory that will contain newly created campaign directories. It defaults to `./campaigns`. The old prototype name `--root` is intentionally retired because it was ambiguous, especially in workflows that use CERN ROOT files.
 
 There is one launch operation: `start CAMPAIGN_DIR`. Creating another run means creating another campaign.
 
@@ -160,29 +162,37 @@ report:
 For a family of files where each input should produce its own output, `@each` expands one rule into one task per matching file:
 
 ```text
-@set dataset beam2026
-
 pedestal-{run}:
-    @each raw converted/{dataset}_raw_{run}.root
-    @output pedestal pedestal/{dataset}_pedestal_{run}.root
+    @each raw converted/data{run}.root
+    @output pedestal pedestal/run{run}.root
     ./make-pedestal @input.raw -o @output.pedestal
 ```
 
 Files such as:
 
 ```text
-converted/beam2026_raw_137.root
-converted/beam2026_raw_138.root
-converted/beam2026_raw_142.root
+converted/data123.root
+converted/data138.root
+converted/data142.root
 ```
 
-produce:
+produce three tasks:
 
 ```text
-pedestal-137
+pedestal-123
 pedestal-138
 pedestal-142
 ```
+
+with corresponding outputs:
+
+```text
+pedestal/run123.root
+pedestal/run138.root
+pedestal/run142.root
+```
+
+A plain placeholder such as `{run}` currently captures arbitrary non-path text. For example, `data123a.root` also matches `data{run}.root` with `run=123a`; numeric-only typed captures are not yet part of the syntax.
 
 A patterned child naturally follows the same family. A plain task depending on a patterned parent fans in from the whole family.
 
@@ -273,7 +283,7 @@ After the command finishes, `attempt.json` records the return code, finish time,
 For a Condor Yawlfile:
 
 ```bash
-yawl-run create --root ./campaigns
+yawl-run create --campaigns-dir ./campaigns
 ```
 
 creates the durable campaign, DAG, per-node submit files, bundled worker, scheduler log paths, and task state, but does not submit the DAG.
@@ -324,4 +334,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-0.7.0: supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
+0.7.1: supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; `--campaigns-dir` for campaign placement; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
