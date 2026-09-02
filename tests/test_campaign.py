@@ -32,7 +32,7 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "[local] host=" in output
     assert "jobs=1" in output
-    assert "cpus_available=" in output
+    assert "logical_cpus=" in output
     assert "[start] left" in output
     assert "[done ] finish" in output
     assert "real=" in output

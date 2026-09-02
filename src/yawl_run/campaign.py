@@ -235,13 +235,44 @@ def _run_with_retries(campaign_dir: Path, task_name: str) -> int:
     return result
 
 
-def _available_cpus() -> int | None:
+def _cpu_topology() -> tuple[int | None, int | None, int | None]:
+    """Return available logical CPUs, physical cores, and threads per core."""
     try:
         if hasattr(os, "sched_getaffinity"):
-            return len(os.sched_getaffinity(0))
+            cpu_ids = set(os.sched_getaffinity(0))
+        else:
+            count = os.cpu_count()
+            cpu_ids = set(range(count)) if count is not None else set()
     except OSError:
-        pass
-    return os.cpu_count()
+        count = os.cpu_count()
+        cpu_ids = set(range(count)) if count is not None else set()
+
+    logical = len(cpu_ids) if cpu_ids else None
+    if sys.platform != "linux" or not cpu_ids:
+        return logical, None, None
+
+    cores: set[tuple[int, int]] = set()
+    try:
+        for cpu_id in cpu_ids:
+            topology = Path(
+                f"/sys/devices/system/cpu/cpu{cpu_id}/topology"
+            )
+            package_id = int(
+                (topology / "physical_package_id").read_text().strip()
+            )
+            core_id = int(
+                (topology / "core_id").read_text().strip()
+            )
+            cores.add((package_id, core_id))
+    except (OSError, ValueError):
+        return logical, None, None
+
+    physical = len(cores) if cores else None
+    threads_per_core = None
+    if logical is not None and physical and logical % physical == 0:
+        threads_per_core = logical // physical
+
+    return logical, physical, threads_per_core
 
 
 def _load_one() -> float | None:
@@ -294,20 +325,24 @@ def start_local(campaign_dir: str | Path) -> Path:
         raise ValueError("invalid local concurrency stored in campaign")
     begin_campaign(campaign_dir)
 
-    cpus = _available_cpus()
+    logical_cpus, physical_cores, threads_per_core = _cpu_topology()
     load1 = _load_one()
     geek = [
         f"host={platform.node()}",
         f"pid={os.getpid()}",
         f"jobs={jobs}",
-        f"cpus_available={cpus if cpus is not None else 'unknown'}",
+        f"logical_cpus={logical_cpus if logical_cpus is not None else 'unknown'}",
     ]
+    if physical_cores is not None:
+        geek.append(f"physical_cores={physical_cores}")
+    if threads_per_core is not None:
+        geek.append(f"threads_per_core={threads_per_core}")
     if load1 is not None:
         geek.append(f"load1={load1:.2f}")
     print("[local] " + " ".join(geek), flush=True)
-    if cpus is not None and jobs > cpus:
+    if logical_cpus is not None and jobs > logical_cpus:
         print(
-            f"[local] warning jobs={jobs} exceeds cpus_available={cpus}; "
+            f"[local] warning jobs={jobs} exceeds logical_cpus={logical_cpus}; "
             "the operating system will time-slice runnable tasks",
             flush=True,
         )
