@@ -14,6 +14,9 @@ def test_local_campaign(tmp_path):
     status = campaign_status(campaign_dir)
     assert status["counts"] == {"completed": 3}
     assert all(t["attempts"] == 1 for t in status["tasks"])
+    assert (campaign_dir / "tasks" / "left.json").is_file()
+    assert (campaign_dir / "left_attempt_001" / "attempt.json").is_file()
+    assert not (campaign_dir / "tasks" / "left").exists()
 
 
 def test_argv_command_and_file_provenance(tmp_path):
@@ -39,8 +42,9 @@ def test_argv_command_and_file_provenance(tmp_path):
     campaign_dir = start_campaign(spec, tmp_path / "campaigns")
 
     attempt = json.loads(
-        (campaign_dir / "tasks" / "transform" / "attempts" / "001" / "attempt.json").read_text()
+        (campaign_dir / "transform_attempt_001" / "attempt.json").read_text()
     )
+    assert attempt["task"] == "transform"
     assert attempt["state"] == "completed"
     assert isinstance(attempt["command"], list)
     assert attempt["inputs"][0]["role"] == "source"
