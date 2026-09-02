@@ -1,0 +1,23 @@
+campaign sqrt2-binomial-map-reduce
+backend local
+
+# Eight independent chunks of the binomial expansion, followed by a fan-in
+# and an explicit numerical check.
+prepare:
+    @output work sqrt2-binomial-work
+    mkdir -p @output.work
+
+partial-{chunk}: prepare
+    @each range chunks/chunk-{chunk}.txt
+    @output partial sqrt2-binomial-work/partial-{chunk}.txt
+    python3 partial_sqrt2.py @input.range @output.partial
+
+sum: partial-{chunk}
+    @input partial sqrt2-binomial-work/partial-{chunk}.txt
+    @output result sqrt2-binomial-work/sqrt2.txt
+    python3 sum_sqrt2.py @input.partial -o @output.result
+
+check: sum
+    @input result sqrt2-binomial-work/sqrt2.txt
+    @output check sqrt2-binomial-work/check.txt
+    python3 check_sqrt2.py @input.result @output.check
