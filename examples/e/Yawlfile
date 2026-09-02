@@ -1,0 +1,80 @@
+campaign e-reduction-tree
+backend local
+
+# Eight independent exact partial sums, then a balanced 8 -> 4 -> 2 -> 1
+# reduction tree and a final numerical check.
+prepare:
+    @output work e-work
+    mkdir -p @output.work
+
+terms-00: prepare
+    @output partial e-work/terms-00.txt
+    python3 e_chunk.py 0 4 @output.partial
+
+terms-01: prepare
+    @output partial e-work/terms-01.txt
+    python3 e_chunk.py 4 8 @output.partial
+
+terms-02: prepare
+    @output partial e-work/terms-02.txt
+    python3 e_chunk.py 8 12 @output.partial
+
+terms-03: prepare
+    @output partial e-work/terms-03.txt
+    python3 e_chunk.py 12 16 @output.partial
+
+terms-04: prepare
+    @output partial e-work/terms-04.txt
+    python3 e_chunk.py 16 20 @output.partial
+
+terms-05: prepare
+    @output partial e-work/terms-05.txt
+    python3 e_chunk.py 20 24 @output.partial
+
+terms-06: prepare
+    @output partial e-work/terms-06.txt
+    python3 e_chunk.py 24 28 @output.partial
+
+terms-07: prepare
+    @output partial e-work/terms-07.txt
+    python3 e_chunk.py 28 32 @output.partial
+
+pair-0: terms-00 terms-01
+    @input partial e-work/terms-00.txt e-work/terms-01.txt
+    @output partial e-work/pair-0.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+pair-1: terms-02 terms-03
+    @input partial e-work/terms-02.txt e-work/terms-03.txt
+    @output partial e-work/pair-1.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+pair-2: terms-04 terms-05
+    @input partial e-work/terms-04.txt e-work/terms-05.txt
+    @output partial e-work/pair-2.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+pair-3: terms-06 terms-07
+    @input partial e-work/terms-06.txt e-work/terms-07.txt
+    @output partial e-work/pair-3.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+group-0: pair-0 pair-1
+    @input partial e-work/pair-0.txt e-work/pair-1.txt
+    @output partial e-work/group-0.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+group-1: pair-2 pair-3
+    @input partial e-work/pair-2.txt e-work/pair-3.txt
+    @output partial e-work/group-1.txt
+    python3 sum_fractions.py @input.partial -o @output.partial
+
+sum: group-0 group-1
+    @input partial e-work/group-0.txt e-work/group-1.txt
+    @output exact e-work/series.txt
+    python3 sum_fractions.py @input.partial -o @output.exact
+
+check: sum
+    @input exact e-work/series.txt
+    @output result e-work/e.txt
+    python3 check_e.py @input.exact @output.result
