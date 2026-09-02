@@ -16,7 +16,8 @@ if [[ "${YAWL_MCMC_FORCE_EIC:-0}" != "1" ]] && \
 fi
 
 # A generated outer eic-shell script is the most portable container entry
-# point for users who installed the standard EIC environment themselves.
+# point for users who installed the standard EIC environment themselves.  The
+# outer script owns container startup and requires -- before a one-shot command.
 if [[ -n "${YAWL_MCMC_EIC_SHELL:-}" ]]; then
     if [[ ! -f "$YAWL_MCMC_EIC_SHELL" ]]; then
         echo "run-pyroot: YAWL_MCMC_EIC_SHELL does not exist: $YAWL_MCMC_EIC_SHELL" >&2
@@ -72,7 +73,7 @@ if [[ -n "$bind_path" ]]; then
     fi
 fi
 
-# eic-shell requires a literal -- before a one-shot command.  Without it,
-# arguments can be interpreted as shell options and the container may simply
-# start an interactive environment, returning success without running payload.
-exec "$runtime" exec "$image" eic-shell -- "$@"
+# The eic_xl image already contains the EIC environment.  When starting the
+# image directly, execute the payload directly inside it.  Do not invoke the
+# outer eic-shell helper again from inside the container.
+exec "$runtime" exec "$image" "$@"
