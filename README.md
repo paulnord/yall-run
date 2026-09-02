@@ -1,4 +1,4 @@
-# YAWL-run
+# yawl-run
 
 **Yet Another Workflow Layer**  
 **Y'all run!**
