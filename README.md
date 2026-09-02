@@ -146,11 +146,32 @@ cat pi-work/pi.txt
 
 ## Task commands and provenance
 
-For every attempt, yawl-run records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes. These records live beside stdout/stderr in:
+For every attempt, yawl-run records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes.
+
+Task state is kept compactly in `tasks/<name>.json`. Human-facing attempt directories sit directly under the campaign directory:
 
 ```text
-tasks/<name>/attempts/NNN/attempt.json
+campaign.json
+provenance.json
+tasks/
+  partial-000.json
+  partial-001.json
+  sum.json
+partial-000_attempt_001/
+  attempt.json
+  stdout.log
+  stderr.log
+partial-001_attempt_001/
+  attempt.json
+  stdout.log
+  stderr.log
+sum_attempt_001/
+  attempt.json
+  stdout.log
+  stderr.log
 ```
+
+Retries become `sum_attempt_002`, `sum_attempt_003`, and so on. This keeps the detailed provenance while making the directories people actually inspect easy to reach.
 
 ## Condor / DAGMan
 
