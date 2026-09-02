@@ -14,20 +14,36 @@ from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
 from .worker import run_task
 
 
+def _friendly_sections(parser: argparse.ArgumentParser, positional_title: str = "arguments") -> None:
+    # argparse's default "positional arguments" / "optional arguments" headings
+    # describe parser mechanics rather than the yawl interface.
+    parser._positionals.title = positional_title
+    parser._optionals.title = "options"
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="yawl-run",
         description="Yet Another Workflow Layer. Y'all run!",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    _friendly_sections(parser, "commands")
+    visible_commands = "{validate,plan,create,start,status,retry}"
+    sub = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar=visible_commands,
+    )
 
     validate = sub.add_parser("validate", help="validate a Yawlfile")
+    _friendly_sections(validate)
     validate.add_argument("spec", nargs="?", default="Yawlfile")
 
     plan = sub.add_parser("plan", help="show tasks described by a Yawlfile")
+    _friendly_sections(plan)
     plan.add_argument("spec", nargs="?", default="Yawlfile")
 
     create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
+    _friendly_sections(create)
     create.add_argument("spec", nargs="?", default="Yawlfile")
     create.add_argument(
         "--campaigns-dir",
@@ -43,19 +59,28 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     start = sub.add_parser("start", help="start one existing campaign")
+    _friendly_sections(start)
     start.add_argument("campaign_dir")
 
     status = sub.add_parser("status", help="show campaign status")
+    _friendly_sections(status)
     status.add_argument("campaign_dir")
     status.add_argument("--json", action="store_true")
 
     retry = sub.add_parser("retry", help="run another attempt of one task")
+    _friendly_sections(retry)
     retry.add_argument("campaign_dir")
     retry.add_argument("task")
 
+    # worker is an internal entry point used by generated scheduler jobs. Keep it
+    # parseable but omit it from ordinary command listings and usage text.
     worker = sub.add_parser("worker", help=argparse.SUPPRESS)
+    _friendly_sections(worker)
     worker.add_argument("campaign_dir")
     worker.add_argument("task")
+    sub._choices_actions[:] = [
+        action for action in sub._choices_actions if action.dest != "worker"
+    ]
 
     return parser
 
