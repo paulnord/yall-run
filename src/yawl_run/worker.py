@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import platform
 import subprocess
 import sys
 from typing import Any
@@ -58,6 +60,13 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     campaign_dir = Path(campaign_dir).expanduser()
     if not campaign_dir.is_absolute():
         campaign_dir = Path.cwd() / campaign_dir
+    campaign_dir = campaign_dir.absolute()
+
+    manifest_path = campaign_dir / "campaign.json"
+    if not manifest_path.exists():
+        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+    manifest = _read_json(manifest_path)
+
     task_path = _task_path(campaign_dir, task_name)
     if not task_path.exists():
         raise ValueError(f"unknown task: {task_name}")
@@ -68,10 +77,42 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     attempt_dir.mkdir(parents=False, exist_ok=False)
     stdout_path = attempt_dir / "stdout.log"
     stderr_path = attempt_dir / "stderr.log"
+    provenance_path = attempt_dir / "provenance.json"
 
     command = task["command"]
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
+
+    launch_provenance = {
+        "schema": 1,
+        "campaign": {
+            "id": manifest.get("id"),
+            "name": manifest.get("name"),
+            "backend": manifest.get("backend"),
+            "yawl_version": manifest.get("yawl_version"),
+            "directory": str(campaign_dir),
+        },
+        "task": {
+            "name": task_name,
+            "attempt": number,
+            "parents": task.get("parents", []),
+            "retries": task.get("retries", 0),
+            "command": command,
+            "cwd": task.get("cwd"),
+            "resources": task.get("resources", {}),
+            "inputs": inputs,
+            "outputs": task.get("outputs", []),
+        },
+        "execution": {
+            "started_at": started,
+            "hostname": platform.node(),
+            "platform": platform.platform(),
+            "python": sys.version,
+            "pid": os.getpid(),
+        },
+    }
+    _write_json(provenance_path, launch_provenance)
+
     _write_json(attempt_dir / "attempt.json", {
         "task": task_name,
         "attempt": number,
@@ -80,10 +121,22 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
+        "provenance": str(provenance_path),
     })
     task["state"] = "running"
     task["attempts"] = number
     _write_json(task_path, task)
+
+    env = os.environ.copy()
+    env.update({
+        "YAWL_CAMPAIGN_ID": str(manifest.get("id", "")),
+        "YAWL_CAMPAIGN_NAME": str(manifest.get("name", "")),
+        "YAWL_CAMPAIGN_DIR": str(campaign_dir),
+        "YAWL_BACKEND": str(manifest.get("backend", "")),
+        "YAWL_TASK": task_name,
+        "YAWL_ATTEMPT": str(number),
+        "YAWL_PROVENANCE": str(provenance_path),
+    })
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
@@ -94,6 +147,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             stdout=out,
             stderr=err,
             text=True,
+            env=env,
         )
 
     state = "completed" if proc.returncode == 0 else "failed"
@@ -110,6 +164,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "cwd": task.get("cwd"),
         "inputs": inputs,
         "outputs": outputs,
+        "provenance": str(provenance_path),
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
     })
