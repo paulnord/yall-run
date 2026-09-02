@@ -60,7 +60,12 @@ def _parser() -> argparse.ArgumentParser:
 
     start = sub.add_parser("start", help="start one existing campaign")
     _friendly_sections(start)
-    start.add_argument("campaign_dir")
+    start.add_argument(
+        "campaign_dir",
+        nargs="?",
+        metavar="CAMPAIGN_DIR",
+        help="campaign directory; if omitted, read one path from stdin",
+    )
 
     status = sub.add_parser("status", help="show campaign status")
     _friendly_sections(status)
@@ -95,6 +100,19 @@ def _require_commands(*names: str) -> None:
     missing = [name for name in names if shutil.which(name) is None]
     if missing:
         raise ValueError(f"required command not found in PATH: {', '.join(missing)}")
+
+
+def _campaign_dir_argument(value: str | None) -> str:
+    if value:
+        return value
+    if getattr(sys.stdin, "isatty", lambda: False)():
+        raise ValueError("CAMPAIGN_DIR is required, or pipe one campaign path to start")
+    lines = [line.strip() for line in sys.stdin if line.strip()]
+    if not lines:
+        raise ValueError("no campaign path received on stdin")
+    if len(lines) != 1:
+        raise ValueError("expected exactly one campaign path on stdin")
+    return lines[0]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,7 +168,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "start":
-            cdir, manifest = campaign_manifest(args.campaign_dir)
+            campaign_dir = _campaign_dir_argument(args.campaign_dir)
+            cdir, manifest = campaign_manifest(campaign_dir)
             backend = manifest.get("backend", "local")
             if backend == "local":
                 cdir = start_local(cdir)
