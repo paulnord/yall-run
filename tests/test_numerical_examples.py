@@ -20,9 +20,9 @@ def test_sqrt2_dependency_chain_example(tmp_path, monkeypatch, capsys):
     spec = load_spec("Yawlfile")
     assert len(spec.tasks) == 15
     tasks = {task.name: task for task in spec.tasks}
-    assert tasks["step-01"].parents == ["seed"]
-    assert tasks["step-12"].parents == ["step-11"]
-    assert tasks["check"].parents == ["step-12"]
+    assert tasks["step-01"].parents == ("seed",)
+    assert tasks["step-12"].parents == ("step-11",)
+    assert tasks["check"].parents == ("step-12",)
 
     campaign_dir = create_campaign(
         spec,
@@ -52,10 +52,10 @@ def test_e_hierarchical_reduction_example(tmp_path, monkeypatch, capsys):
     spec = load_spec("Yawlfile")
     assert len(spec.tasks) == 17
     tasks = {task.name: task for task in spec.tasks}
-    assert tasks["pair-0"].parents == ["terms-00", "terms-01"]
-    assert tasks["group-0"].parents == ["pair-0", "pair-1"]
-    assert tasks["sum"].parents == ["group-0", "group-1"]
-    assert tasks["check"].parents == ["sum"]
+    assert tasks["pair-0"].parents == ("terms-00", "terms-01")
+    assert tasks["group-0"].parents == ("pair-0", "pair-1")
+    assert tasks["sum"].parents == ("group-0", "group-1")
+    assert tasks["check"].parents == ("sum",)
 
     campaign_dir = create_campaign(
         spec,
