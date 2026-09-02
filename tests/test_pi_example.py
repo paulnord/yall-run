@@ -19,8 +19,13 @@ def test_pi_map_reduce_example(tmp_path, monkeypatch):
     assert len(spec.tasks[-1].parents) == 8
     assert len(spec.tasks[-1].inputs) == 8
 
-    campaign_dir = create_campaign(spec, tmp_path / "campaigns", backend="local")
-    start_local(campaign_dir, jobs=4)
+    campaign_dir = create_campaign(
+        spec,
+        tmp_path / "campaigns",
+        backend="local",
+        local_jobs=4,
+    )
+    start_local(campaign_dir)
     status = campaign_status(campaign_dir)
     assert status["counts"] == {"completed": 10}
 
