@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from typing import Any
 
-from .campaign import create_campaign
+from .campaign import begin_campaign, create_campaign
 from .model import CampaignSpec
 from .paths import logical_absolute
 
@@ -131,11 +131,11 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     return campaign_dir
 
 
-def submit_rendered(campaign_dir: str | Path) -> Path:
+def submit_rendered(campaign_dir: str | Path, max_jobs: int | None = None) -> Path:
     campaign_dir = logical_absolute(campaign_dir)
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.is_file():
-        raise ValueError(f"not a YAWL campaign: {campaign_dir}")
+        raise ValueError(f"not a yawl campaign: {campaign_dir}")
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("backend") != "condor":
         raise ValueError(f"campaign backend is not condor: {campaign_dir}")
@@ -151,15 +151,20 @@ def submit_rendered(campaign_dir: str | Path) -> Path:
         suffix = f" (cluster {cluster})" if cluster is not None else ""
         raise ValueError(f"campaign has already been submitted{suffix}: {campaign_dir}")
 
+    begin_campaign(campaign_dir, max_jobs)
+    command = ["condor_submit_dag"]
+    if max_jobs is not None:
+        command.extend(["-maxjobs", str(max_jobs)])
+    command.append(dag_path.name)
     proc = subprocess.run(
-        ["condor_submit_dag", dag_path.name],
+        command,
         cwd=condor_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
     record: dict[str, Any] = {
-        "command": ["condor_submit_dag", dag_path.name],
+        "command": command,
         "returncode": proc.returncode,
         "stdout": proc.stdout,
         "stderr": proc.stderr,
@@ -170,13 +175,6 @@ def submit_rendered(campaign_dir: str | Path) -> Path:
     _write_json(submit_path, record)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "condor_submit_dag failed")
-    return campaign_dir
-
-
-def submit_condor(spec: CampaignSpec, root: str | Path, submit: bool = True) -> Path:
-    campaign_dir = render_condor(spec, root)
-    if submit:
-        submit_rendered(campaign_dir)
     return campaign_dir
 
 
