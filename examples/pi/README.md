@@ -13,13 +13,15 @@ From this directory:
 ```bash
 yawl-run validate
 yawl-run plan
-yawl-run start --dry-run
+yawl-run create
 ```
 
-The last command renders a Condor/DAGMan campaign without submitting it. It prints the exact campaign directory. Submit that rendered campaign with:
+The Yawlfile declares `backend condor`, so `create` freezes the campaign and renders the Condor/DAGMan files without submitting them. It prints the exact campaign directory.
+
+Start that campaign with:
 
 ```bash
-yawl-run submit campaigns/<campaign-id>
+yawl-run start campaigns/<campaign-id> -j 4
 ```
 
 After completion, the combined estimate is in:
@@ -28,9 +30,12 @@ After completion, the combined estimate is in:
 pi-work/pi.txt
 ```
 
-For a local smoke test, override the backend:
+For a local smoke test, create a separate local campaign from the same Yawlfile:
 
 ```bash
-yawl-run start --backend local
+yawl-run create --backend local
+yawl-run start campaigns/<local-campaign-id> -j 4
 cat pi-work/pi.txt
 ```
+
+Each task attempt has a top-level directory such as `partial-000_attempt_001/`. Its `provenance.json` exists before the worker starts, and the worker receives its path in `YAWL_PROVENANCE`.
