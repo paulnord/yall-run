@@ -30,6 +30,29 @@ def test_condor_dag_render(tmp_path):
     assert (campaign_dir / "condor" / "yawl_worker.py").is_file()
 
 
+def test_condor_task_resources_override_campaign_defaults(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = tmp_path / "Yawlfile"
+    spec_file.write_text(
+        "campaign resources\n"
+        "backend condor\n"
+        "%cpus 1\n"
+        "%memory 2GB\n"
+        "%disk 3GB\n\n"
+        "heavy:\n"
+        "    %cpus 4\n"
+        "    %memory 8GB\n"
+        "    %disk 10GB\n"
+        "    echo heavy\n"
+    )
+    spec = load_spec(spec_file)
+    campaign_dir = render_condor(spec, tmp_path / "campaigns")
+    submit = (campaign_dir / "condor" / "yawl_0000_heavy.sub").read_text()
+    assert "request_cpus = 4" in submit
+    assert "request_memory = 8GB" in submit
+    assert "request_disk = 10GB" in submit
+
+
 def test_condor_wrapper_is_archived(tmp_path):
     wrapper = tmp_path / "container-wrapper.sh"
     wrapper.write_text("#!/bin/bash\nexec \"$@\"\n")

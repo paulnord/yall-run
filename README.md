@@ -7,7 +7,7 @@
 **Yet Another Workflow Layer**  
 **Y'all run!**
 
-yawl-run is a deliberately small campaign runner for reproducible analysis work. It sits *above* a batch system rather than trying to become one.
+yawl-run is a deliberately small campaign runner for reproducible analysis work. It sits above a batch system rather than trying to become one.
 
 The core model is:
 
@@ -17,9 +17,9 @@ campaign
     attempt
 ```
 
-The same campaign specification can run locally or through HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
+The same campaign can run locally or through HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
 
-> Naming note: yawl-run is not the yawl (Yet Another Workflow Language) workflow system.
+> Naming note: yawl-run is not the YAWL (Yet Another Workflow Language) workflow system.
 
 ## Install
 
@@ -29,26 +29,116 @@ Requires Python 3.9+.
 python3 -m pip install -e .
 ```
 
-## Local smoke test
+## A small Yawlfile
+
+The human-facing format is intentionally Make-like:
+
+```text
+campaign hello-yawl
+backend local
+
+left:
+    echo left says hello
+
+right:
+    echo right says hello
+
+finish: left right
+    echo both parents finished
+```
+
+Save that as `Yawlfile`, then:
 
 ```bash
-yawl-run validate examples/hello.toml
-yawl-run plan examples/hello.toml
-yawl-run start examples/hello.toml --root ./campaigns
-yawl-run status ./campaigns/<campaign-id>
+yawl-run validate
+yawl-run plan
+yawl-run start --root ./campaigns
 ```
+
+You can still pass an explicit file, including the original TOML format:
+
+```bash
+yawl-run plan examples/hello.toml
+```
+
+## Data is `@`, execution policy is `%`
+
+Named inputs and outputs can be reused directly in the command:
+
+```text
+convert:
+    @input raw raw/run137.h2g
+    @output root converted/raw_137.root
+
+    %retry 1
+    %cpus 2
+    %memory 4GB
+
+    ./Convert -i @input.raw -o @output.root
+```
+
+`@input.raw` and `@output.root` are expanded into argv elements. A role can contain several paths, in which case the reference expands to several argv elements.
+
+`@` is for data and named values. `%` is for execution policy. Resource requests are generic yawl-run concepts; the Condor backend translates them into scheduler directives.
+
+Commands are argv arrays by default. If a task deliberately needs shell syntax, prefix the command with `!`:
+
+```text
+report:
+    @output text report.txt
+    ! echo complete > @output.text
+```
+
+## Pattern tasks
+
+For a family of files where each input should produce its own output, `@each` expands one rule into one task per matching file:
+
+```text
+@set dataset beam2026
+
+pedestal-{run}:
+    @each raw converted/{dataset}_raw_{run}.root
+    @output pedestal pedestal/{dataset}_pedestal_{run}.root
+    ./make-pedestal @input.raw -o @output.pedestal
+```
+
+Files such as:
+
+```text
+converted/beam2026_raw_137.root
+converted/beam2026_raw_138.root
+converted/beam2026_raw_142.root
+```
+
+produce:
+
+```text
+pedestal-137
+pedestal-138
+pedestal-142
+```
+
+A patterned child naturally follows the same family:
+
+```text
+check-{run}: pedestal-{run}
+    @input pedestal pedestal/beam2026_pedestal_{run}.root
+    ./check @input.pedestal
+```
+
+A plain task depending on `pedestal-{run}` fans in from the whole family.
+
+See [docs/YAWLFILE.md](docs/YAWLFILE.md) for the format details.
 
 ## Task commands and provenance
 
-A task command may be a shell string for convenience:
+For every attempt, yawl-run records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes. These records live beside stdout/stderr in:
 
-```toml
-[[task]]
-name = "quick-look"
-command = "echo hello > hello.txt"
+```text
+tasks/<name>/attempts/NNN/attempt.json
 ```
 
-For analysis jobs, an argv array avoids shell parsing and preserves the executable arguments exactly:
+The precise TOML format remains supported and is useful for generated campaigns and interchange. An argv-style TOML task still looks like:
 
 ```toml
 [[task]]
@@ -62,34 +152,15 @@ outputs = [
 ]
 ```
 
-For every attempt, yawl records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes. These records live beside stdout/stderr in `tasks/<name>/attempts/NNN/attempt.json`.
-
 ## Condor / DAGMan
-
-`examples/condor-dag.toml` demonstrates sibling jobs, retries, and a child that waits for both parents.
 
 First render everything without submitting:
 
 ```bash
-yawl-run validate examples/condor-dag.toml
-yawl-run plan examples/condor-dag.toml
 yawl-run start examples/condor-dag.toml --root ./campaigns --dry-run
 ```
 
-The generated campaign contains:
-
-```text
-condor/
-  campaign.dag
-  yawl_worker.py
-  yawl_0000_left.sub
-  yawl_0000_left.sh
-  yawl_0001_right.sub
-  yawl_0001_right.sh
-  yawl_0002_finish.sub
-  yawl_0002_finish.sh
-  logs/
-```
+The generated campaign contains the DAG, per-node submit files, a bundled worker, scheduler logs, and the durable yawl-run task records.
 
 Inspect that rendered campaign, then submit that exact artifact:
 
@@ -105,7 +176,7 @@ You can also submit directly without a review step:
 yawl-run start examples/condor-dag.toml --root ./campaigns
 ```
 
-DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable yawl campaign record rather than living only in scheduler history.
+DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable campaign record rather than living only in scheduler history.
 
 Check state with:
 
@@ -117,48 +188,17 @@ For active Condor campaigns, status reports the DAGMan controller separately fro
 
 ## Condor execution wrapper
 
-A site or container wrapper can be configured without teaching yawl anything detector-specific:
-
-```toml
-[condor]
-request_cpus = 1
-request_memory = "4GB"
-request_disk = "2GB"
-wrapper = "/path/to/run-in-container.sh"
-```
-
-When the campaign is rendered, yawl copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `getenv = true`.
-
-## Example DAG campaign
-
-```toml
-[campaign]
-name = "condor-dag-demo"
-backend = "condor"
-
-[[task]]
-name = "left"
-command = ["./left-analysis"]
-retries = 1
-
-[[task]]
-name = "right"
-command = ["./right-analysis"]
-retries = 1
-
-[[task]]
-name = "compare"
-command = ["./compare-results"]
-parents = ["left", "right"]
-```
-
-That renders the DAGMan relationship:
+A site or container wrapper can be configured without teaching yawl-run anything detector-specific. In a Yawlfile:
 
 ```text
-left  --\
-         > compare
-right --/
+backend condor
+%cpus 1
+%memory 4GB
+%disk 2GB
+%wrapper /path/to/run-in-container.sh
 ```
+
+When the campaign is rendered, yawl-run copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `%getenv true`.
 
 ## Design rule
 
@@ -166,4 +206,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-Prototype. Small on purpose, but with a real HTCondor/DAGMan backend and a durable campaign record.
+0.4 development branch: a human-readable Yawlfile format on top of the existing campaign model, with the TOML format retained for compatibility and generated workflows.

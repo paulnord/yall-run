@@ -19,13 +19,13 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     validate = sub.add_parser("validate", help="validate a campaign specification")
-    validate.add_argument("spec")
+    validate.add_argument("spec", nargs="?", default="Yawlfile")
 
     plan = sub.add_parser("plan", help="show tasks without running them")
-    plan.add_argument("spec")
+    plan.add_argument("spec", nargs="?", default="Yawlfile")
 
     start = sub.add_parser("start", help="create and run or render a campaign")
-    start.add_argument("spec")
+    start.add_argument("spec", nargs="?", default="Yawlfile")
     start.add_argument("--root", default="./campaigns")
     start.add_argument("--backend", choices=("local", "condor"))
     start.add_argument(
@@ -75,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
                     extras.append("after=" + ",".join(task.parents))
                 if task.retries:
                     extras.append(f"retries={task.retries}")
+                if task.resources.cpus is not None:
+                    extras.append(f"cpus={task.resources.cpus}")
+                if task.resources.memory is not None:
+                    extras.append(f"memory={task.resources.memory}")
+                if task.resources.disk is not None:
+                    extras.append(f"disk={task.resources.disk}")
                 suffix = f" [{' '.join(extras)}]" if extras else ""
                 print(f"  {task.name}: {_display_command(task.command)}{suffix}")
             return 0
