@@ -1,0 +1,19 @@
+campaign pi-map-reduce
+backend condor
+
+# One small setup task, eight identical workers, then one fan-in reducer.
+prepare:
+    @output work pi-work
+    mkdir -p @output.work
+
+partial-{chunk}: prepare
+    @each range chunks/chunk-{chunk}.txt
+    @output partial pi-work/partial-{chunk}.txt
+    %retry 1
+    %memory 256MB
+    python3 partial_pi.py @input.range @output.partial
+
+sum: partial-{chunk}
+    @input partial pi-work/partial-{chunk}.txt
+    @output result pi-work/pi.txt
+    python3 sum_pi.py @input.partial -o @output.result
