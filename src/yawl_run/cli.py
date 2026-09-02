@@ -9,6 +9,8 @@ import sys
 from .backend import condor_queue_status, render_condor, submit_rendered
 from .campaign import campaign_manifest, campaign_status, create_campaign, start_local
 from .model import load_spec
+from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
+from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
 from .worker import run_task
 
 
@@ -28,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
     create.add_argument("spec", nargs="?", default="Yawlfile")
     create.add_argument("--root", default="./campaigns")
-    create.add_argument("--backend", choices=("local", "condor"))
+    create.add_argument("--backend", choices=("local", "condor", "slurm", "pbs"))
     create.add_argument(
         "-j",
         "--jobs",
@@ -58,6 +60,12 @@ def _display_command(command: object) -> str:
     if isinstance(command, str):
         return command
     return shlex.join(str(item) for item in command)
+
+
+def _require_commands(*names: str) -> None:
+    missing = [name for name in names if shutil.which(name) is None]
+    if missing:
+        raise ValueError(f"required command not found in PATH: {', '.join(missing)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,17 +100,23 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("-j/--jobs must be positive")
             spec = load_spec(args.spec)
             backend = args.backend or spec.backend
+            if backend != "local" and args.jobs is not None:
+                raise ValueError("-j/--jobs is only valid for the local backend")
             if backend == "condor":
-                if args.jobs is not None:
-                    raise ValueError("-j/--jobs is only valid for the local backend")
                 cdir = render_condor(spec, args.root)
-            else:
+            elif backend == "slurm":
+                cdir = render_slurm(spec, args.root)
+            elif backend == "pbs":
+                cdir = render_pbs(spec, args.root)
+            elif backend == "local":
                 cdir = create_campaign(
                     spec,
                     args.root,
                     backend="local",
                     local_jobs=args.jobs,
                 )
+            else:
+                raise ValueError(f"unknown campaign backend: {backend}")
             print(cdir)
             return 0
 
@@ -112,9 +126,14 @@ def main(argv: list[str] | None = None) -> int:
             if backend == "local":
                 cdir = start_local(cdir)
             elif backend == "condor":
-                if shutil.which("condor_submit_dag") is None:
-                    raise ValueError("condor_submit_dag not found in PATH")
+                _require_commands("condor_submit_dag")
                 cdir = submit_rendered(cdir)
+            elif backend == "slurm":
+                _require_commands("sbatch", "scontrol")
+                cdir = submit_slurm(cdir)
+            elif backend == "pbs":
+                _require_commands("qsub", "qrls")
+                cdir = submit_pbs(cdir)
             else:
                 raise ValueError(f"unknown campaign backend: {backend}")
             print(cdir)
@@ -122,33 +141,43 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "status":
             data = campaign_status(args.campaign_dir)
-            if data["backend"] == "condor":
+            backend = data["backend"]
+            if backend == "condor":
                 data["scheduler"] = condor_queue_status(args.campaign_dir)
+            elif backend == "slurm":
+                data["scheduler"] = slurm_queue_status(args.campaign_dir)
+            elif backend == "pbs":
+                data["scheduler"] = pbs_queue_status(args.campaign_dir)
             if args.json:
                 print(json.dumps(data, indent=2, sort_keys=True))
             else:
-                print(f"Campaign {data['id']} ({data['backend']})")
+                print(f"Campaign {data['id']} ({backend})")
                 scheduler = data.get("scheduler") or {}
                 active_nodes = scheduler.get("nodes", {})
                 for task in data["tasks"]:
                     suffix = ""
                     active = active_nodes.get(task["name"])
                     if active:
-                        suffix = f" condor={active['state']} job={active['job_id']}"
+                        suffix = (
+                            f" {backend}={active['state']} job={active['job_id']}"
+                        )
                     print(
                         f"  {task['name']:<20} {task['state']:<10} "
                         f"attempts={task['attempts']}{suffix}"
                     )
                 if data.get("scheduler") is not None:
-                    dagman = scheduler.get("dagman") or "not-in-queue"
                     counts = scheduler.get("counts", {})
                     node_summary = ", ".join(
                         f"{name}={count}" for name, count in sorted(counts.items())
                     ) or "no active nodes"
-                    print(
-                        f"  scheduler: dagman={dagman} cluster={scheduler['cluster_id']}; "
-                        f"nodes: {node_summary}"
-                    )
+                    if backend == "condor":
+                        dagman = scheduler.get("dagman") or "not-in-queue"
+                        print(
+                            f"  scheduler: dagman={dagman} "
+                            f"cluster={scheduler['cluster_id']}; nodes: {node_summary}"
+                        )
+                    else:
+                        print(f"  scheduler: {backend}; nodes: {node_summary}")
             return 0
 
         if args.command in {"retry", "worker"}:
