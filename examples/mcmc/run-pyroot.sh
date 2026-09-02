@@ -22,7 +22,7 @@ if [[ -n "${YAWL_MCMC_EIC_SHELL:-}" ]]; then
         echo "run-pyroot: YAWL_MCMC_EIC_SHELL does not exist: $YAWL_MCMC_EIC_SHELL" >&2
         exit 2
     fi
-    exec "$YAWL_MCMC_EIC_SHELL" "$@"
+    exec "$YAWL_MCMC_EIC_SHELL" -- "$@"
 fi
 
 # BNL and JLab normally expose the EIC images directly through CVMFS.  Either
@@ -72,6 +72,7 @@ if [[ -n "$bind_path" ]]; then
     fi
 fi
 
-# eic-shell inside the image loads the EIC environment before executing the
-# payload.  Argument boundaries are preserved all the way to python3.
-exec "$runtime" exec "$image" eic-shell "$@"
+# eic-shell requires a literal -- before a one-shot command.  Without it,
+# arguments can be interpreted as shell options and the container may simply
+# start an interactive environment, returning success without running payload.
+exec "$runtime" exec "$image" eic-shell -- "$@"
