@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import py_compile
 import subprocess
 
@@ -39,3 +40,43 @@ def test_mcmc_pyroot_launcher_shell_syntax():
     root = Path(__file__).resolve().parents[1]
     launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
     subprocess.run(["bash", "-n", str(launcher)], check=True)
+
+
+def test_mcmc_pyroot_launcher_uses_eic_shell_command_separator(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
+
+    image = tmp_path / "eic-image"
+    image.touch()
+    recorded = tmp_path / "apptainer-args.txt"
+    fake_apptainer = tmp_path / "apptainer"
+    fake_apptainer.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$@\" > \"$YAWL_TEST_ARGS\"\n"
+    )
+    fake_apptainer.chmod(0o755)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{tmp_path}:{env.get('PATH', '')}",
+            "YAWL_MCMC_FORCE_EIC": "1",
+            "YAWL_MCMC_EIC_IMAGE": str(image),
+            "YAWL_TEST_ARGS": str(recorded),
+        }
+    )
+    subprocess.run(
+        ["bash", str(launcher), "python3", "payload.py", "value with space"],
+        check=True,
+        env=env,
+    )
+
+    assert recorded.read_text().splitlines() == [
+        "exec",
+        str(image),
+        "eic-shell",
+        "--",
+        "python3",
+        "payload.py",
+        "value with space",
+    ]
