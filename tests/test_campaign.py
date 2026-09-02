@@ -47,7 +47,9 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     assert start_record["execution"] == {"local": {"jobs": 1}}
 
 
-def test_local_j_is_frozen_at_create_and_runs_tasks_concurrently(tmp_path, monkeypatch):
+def test_local_j_is_frozen_at_create_and_runs_tasks_concurrently(
+    tmp_path, monkeypatch, capsys
+):
     monkeypatch.chdir(tmp_path)
     barrier = tmp_path / "barrier.py"
     barrier.write_text(
@@ -77,7 +79,10 @@ def test_local_j_is_frozen_at_create_and_runs_tasks_concurrently(tmp_path, monke
     spec = load_spec(spec_file)
     campaign_dir = create_campaign(spec, tmp_path / "campaigns", local_jobs=2)
     start_local(campaign_dir)
+    output = capsys.readouterr().out
 
+    assert output.index("[done ] left") < output.index("[start] finish")
+    assert output.index("[done ] right") < output.index("[start] finish")
     assert campaign_status(campaign_dir)["counts"] == {"completed": 3}
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     assert manifest["execution"] == {"local": {"jobs": 2}}
