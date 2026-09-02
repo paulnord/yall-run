@@ -32,7 +32,15 @@ yawl-run plan
 yawl-run create
 ```
 
-`create` freezes the expanded task graph into a new campaign directory and runs nothing. Launch that exact campaign with:
+`create` freezes the expanded task graph into a new campaign directory and runs nothing. By default, new campaign directories are created under `./campaigns`. Choose another container directory with:
+
+```bash
+yawl-run create --campaigns-dir /path/to/campaigns
+```
+
+`--campaigns-dir` names the directory that contains campaign directories; it is not the path of the individual campaign itself.
+
+Launch the exact campaign printed by `create` with:
 
 ```bash
 yawl-run start campaigns/<campaign-id>
@@ -143,11 +151,9 @@ A trailing backslash continues a long logical line.
 `@each` maps a family of existing files into a family of tasks. Placeholders in braces are captured from the matching filename.
 
 ```text
-@set dataset beam2026
-
 pedestal-{run}:
-    @each raw converted/{dataset}_raw_{run}.root
-    @output pedestal pedestal/{dataset}_pedestal_{run}.root
+    @each raw converted/data{run}.root
+    @output pedestal pedestal/run{run}.root
     %memory 4GB
     ./make-pedestal @input.raw -o @output.pedestal
 ```
@@ -155,20 +161,30 @@ pedestal-{run}:
 If the directory contains:
 
 ```text
-converted/beam2026_raw_137.root
-converted/beam2026_raw_138.root
-converted/beam2026_raw_142.root
+converted/data123.root
+converted/data138.root
+converted/data142.root
 ```
 
 yawl-run expands the rule to three ordinary tasks:
 
 ```text
-pedestal-137
+pedestal-123
 pedestal-138
 pedestal-142
 ```
 
+and resolves their outputs as:
+
+```text
+pedestal/run123.root
+pedestal/run138.root
+pedestal/run142.root
+```
+
 Each task receives one matched `raw` input and produces its own declared output.
+
+Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
 
 The input set is discovered and frozen when the campaign is created. An `@each` pattern that matches nothing is an error.
 
@@ -178,14 +194,14 @@ A patterned child inherits the values of a patterned parent:
 
 ```text
 check-{run}: pedestal-{run}
-    @input pedestal pedestal/beam2026_pedestal_{run}.root
+    @input pedestal pedestal/run{run}.root
     ./check @input.pedestal
 ```
 
 This expands one-to-one:
 
 ```text
-pedestal-137 -> check-137
+pedestal-123 -> check-123
 pedestal-138 -> check-138
 pedestal-142 -> check-142
 ```
@@ -194,7 +210,7 @@ A non-patterned child depending on a patterned parent means fan-in from the whol
 
 ```text
 summary: pedestal-{run}
-    @input pedestal pedestal/beam2026_pedestal_{run}.root
+    @input pedestal pedestal/run{run}.root
     ./summarize @input.pedestal
 ```
 
