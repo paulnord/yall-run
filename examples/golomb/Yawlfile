@@ -1,0 +1,28 @@
+campaign golomb-11-branch-and-bound
+backend local
+
+# Eight independent search shards share a decreasing incumbent.  A shorter
+# ruler found by one task can therefore tighten pruning in the others.
+prepare:
+    @output work golomb-work
+    @output incumbent golomb-work/incumbent.json
+    mkdir -p @output.work
+    python3 init_incumbent.py --order 11 --limit 80 @output.incumbent
+
+search-{id}: prepare
+    @each shard shards/shard-{id}.txt
+    @input incumbent golomb-work/incumbent.json
+    @output result golomb-work/search-{id}.json
+    %memory 256MB
+    python3 search.py @input.shard @input.incumbent @output.result
+
+reduce: search-{id}
+    @input incumbent golomb-work/incumbent.json
+    @input result golomb-work/search-{id}.json
+    @output best golomb-work/best.json
+    python3 reduce.py @input.incumbent @input.result -o @output.best
+
+verify: reduce
+    @input best golomb-work/best.json
+    @output report golomb-work/report.txt
+    python3 verify.py @input.best @output.report
