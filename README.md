@@ -239,15 +239,14 @@ yawl-run create --backend slurm
 yawl-run create --backend pbs
 ```
 
-## Attempt directories and provenance
+## Campaign records and attempt provenance
 
-Task state is kept compactly under `tasks/`, while attempt directories are immediately visible at campaign level:
+A campaign keeps one frozen definition of the workflow and only small mutable files for current task state:
 
 ```text
 campaign.json
-provenance.json
 start.json
-tasks/
+state/
     partial-000.json
     sum.json
 partial-000_attempt_001/
@@ -262,7 +261,11 @@ sum_attempt_001/
     stderr.log
 ```
 
-`provenance.json` inside each attempt is written **before** the task begins and is not rewritten afterward. It contains portable launch provenance: campaign identity, task and attempt identity, command, cwd, resolved inputs, declared outputs, requested resources, execution host, Python version, and start time.
+`campaign.json` is the durable definition of the campaign. It contains campaign identity, creation environment, execution policy, task order, and each frozen task definition including dependencies, command, cwd, resources, inputs, and outputs. Creation provenance lives there rather than in a separate top-level provenance file.
+
+Files under `state/` are deliberately small and mutable. A task state file normally contains only its current state, attempt count, and most recent return code. This lets independent workers update their own state atomically without duplicating the full task definition in every file.
+
+Each attempt still has two distinct records. `provenance.json` is written **before** the task command begins and is never rewritten afterward. It contains portable launch provenance: campaign identity, task and attempt identity, command, cwd, resolved inputs, declared outputs, requested resources, execution host, Python version, and start time. `attempt.json` is completed after execution and records the return code, finish time, timing, stdout/stderr locations, and observed output metadata.
 
 The launched program also receives:
 
@@ -278,7 +281,7 @@ YAWL_PROVENANCE
 
 `YAWL_PROVENANCE` points at the attempt's launch-provenance JSON. Application-specific programs may copy or embed that record into their own native output formats without teaching generic yawl-run anything about those formats.
 
-After the command finishes, `attempt.json` records the return code, finish time, timing, stdout/stderr locations, and observed output metadata. Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
+Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
 
 ## Condor / DAGMan
 
@@ -336,4 +339,4 @@ A feature belongs in yawl-run when it expresses a portable workflow concept: tas
 
 ## Status
 
-0.7.1: supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; `--campaigns-dir` for campaign placement; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
+0.8.0: schema 7 stores frozen task definitions and campaign creation provenance once in `campaign.json`, with compact mutable task state under `state/`; supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; `--campaigns-dir` for campaign placement; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
