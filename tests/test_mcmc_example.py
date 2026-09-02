@@ -42,7 +42,7 @@ def test_mcmc_pyroot_launcher_shell_syntax():
     subprocess.run(["bash", "-n", str(launcher)], check=True)
 
 
-def test_mcmc_pyroot_launcher_uses_eic_shell_command_separator(tmp_path):
+def test_mcmc_pyroot_launcher_execs_payload_directly_in_image(tmp_path):
     root = Path(__file__).resolve().parents[1]
     launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
 
@@ -74,9 +74,36 @@ def test_mcmc_pyroot_launcher_uses_eic_shell_command_separator(tmp_path):
     assert recorded.read_text().splitlines() == [
         "exec",
         str(image),
-        "eic-shell",
-        "--",
         "python3",
         "payload.py",
         "value with space",
     ]
+
+
+def test_mcmc_pyroot_launcher_outer_eic_shell_uses_separator(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
+
+    recorded = tmp_path / "eic-shell-args.txt"
+    fake_shell = tmp_path / "eic-shell"
+    fake_shell.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$@\" > \"$YAWL_TEST_ARGS\"\n"
+    )
+    fake_shell.chmod(0o755)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "YAWL_MCMC_FORCE_EIC": "1",
+            "YAWL_MCMC_EIC_SHELL": str(fake_shell),
+            "YAWL_TEST_ARGS": str(recorded),
+        }
+    )
+    subprocess.run(
+        ["bash", str(launcher), "python3", "payload.py"],
+        check=True,
+        env=env,
+    )
+
+    assert recorded.read_text().splitlines() == ["--", "python3", "payload.py"]
