@@ -50,8 +50,8 @@ def main() -> int:
             )
 
     # To beat a length-L ruler, the first nonzero mark can be at most
-    # L - order.  Confirm that every such first mark was assigned and visited.
-    required_first_marks = set(range(1, best_length - order + 1))
+    # L - order + 1. Confirm that every such first mark was assigned and visited.
+    required_first_marks = set(range(1, best_length - order + 2))
     searched_first_marks = {
         int(first)
         for result in results
