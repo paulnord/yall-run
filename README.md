@@ -1,13 +1,13 @@
-# YAWL-run
+# yawl-run
 
 <p align="center">
-  <img src="docs/images/yawl-run-logo.png" alt="YAWL-run logo" width="400">
+  <img src="docs/images/yawl-run-logo.png" alt="yawl-run logo" width="400">
 </p>
 
 **Yet Another Workflow Layer**  
 **Y'all run!**
 
-YAWL-run is a deliberately small campaign runner for reproducible analysis work. It sits *above* a batch system rather than trying to become one.
+yawl-run is a deliberately small campaign runner for reproducible analysis work. It sits *above* a batch system rather than trying to become one.
 
 The core model is:
 
@@ -17,9 +17,9 @@ campaign
     attempt
 ```
 
-The same campaign specification can run locally or through HTCondor/DAGMan. YAWL-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
+The same campaign specification can run locally or through HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
 
-> Naming note: YAWL-run is not the YAWL (Yet Another Workflow Language) workflow system.
+> Naming note: yawl-run is not the yawl (Yet Another Workflow Language) workflow system.
 
 ## Install
 
@@ -62,7 +62,7 @@ outputs = [
 ]
 ```
 
-For every attempt, YAWL records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes. These records live beside stdout/stderr in `tasks/<name>/attempts/NNN/attempt.json`.
+For every attempt, yawl records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes. These records live beside stdout/stderr in `tasks/<name>/attempts/NNN/attempt.json`.
 
 ## Condor / DAGMan
 
@@ -105,7 +105,7 @@ You can also submit directly without a review step:
 yawl-run start examples/condor-dag.toml --root ./campaigns
 ```
 
-DAGMan retries invoke the YAWL worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable YAWL campaign record rather than living only in scheduler history.
+DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable yawl campaign record rather than living only in scheduler history.
 
 Check state with:
 
@@ -113,11 +113,11 @@ Check state with:
 yawl-run status ./campaigns/<campaign-id>
 ```
 
-For active Condor campaigns, status reports the DAGMan controller separately from its DAG nodes and maps active `DAGNodeName` values back to YAWL task names.
+For active Condor campaigns, status reports the DAGMan controller separately from its DAG nodes and maps active `DAGNodeName` values back to yawl task names.
 
 ## Condor execution wrapper
 
-A site or container wrapper can be configured without teaching YAWL anything detector-specific:
+A site or container wrapper can be configured without teaching yawl anything detector-specific:
 
 ```toml
 [condor]
@@ -127,7 +127,7 @@ request_disk = "2GB"
 wrapper = "/path/to/run-in-container.sh"
 ```
 
-When the campaign is rendered, YAWL copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled YAWL worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `getenv = true`.
+When the campaign is rendered, yawl copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `getenv = true`.
 
 ## Example DAG campaign
 
@@ -162,7 +162,7 @@ right --/
 
 ## Design rule
 
-If a feature can be described without mentioning LFHCal, HGCROC, a particular run number, ROOT histograms, or detector-specific conventions, it may belong in YAWL-run. Otherwise it belongs in the analysis-specific layer.
+If a feature can be described without mentioning LFHCal, HGCROC, a particular run number, ROOT histograms, or detector-specific conventions, it may belong in yawl-run. Otherwise it belongs in the analysis-specific layer.
 
 ## Status
 
