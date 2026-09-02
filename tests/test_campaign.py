@@ -9,7 +9,7 @@ from yawl_run.model import load_spec
 
 def test_create_then_start_local_campaign(tmp_path, capsys):
     root = Path(__file__).resolve().parents[1]
-    spec = load_spec(root / "examples" / "hello.yawl")
+    spec = load_spec(root / "examples" / "hello" / "Yawlfile")
     campaign_dir = create_campaign(spec, tmp_path, backend="local")
 
     assert not list(campaign_dir.glob("*_attempt_*"))
