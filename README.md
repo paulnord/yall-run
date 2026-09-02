@@ -18,9 +18,22 @@ Yawlfile
             -> attempt
 ```
 
-A `Yawlfile` is a reusable recipe, much like a Makefile. A campaign is one frozen instance of that recipe. The same Yawlfile can be instantiated for local execution or HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
+A `Yawlfile` is a reusable recipe, much like a Makefile. A campaign is one frozen instance of that recipe. The same Yawlfile can be instantiated for local execution or a supported queue backend. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. The queue system still owns resource allocation, queue policy, execution hosts, holds, and machine scheduling.
 
 > Naming note: yawl-run is not the YAWL (Yet Another Workflow Language) workflow system.
+
+## Backends
+
+| Backend | Status | Dependency mechanism |
+| --- | --- | --- |
+| local | supported | yawl local coordinator |
+| HTCondor / DAGMan | supported | DAGMan |
+| Slurm | experimental | `afterok` dependencies |
+| OpenPBS / PBS Professional | experimental | `afterok` dependencies |
+
+The Slurm and PBS adapters are tested in CI with simulated scheduler commands and generated-script checks, but have not yet been validated by this project on production Slurm or PBS clusters. Reports, fixes, site tests, and contributed backend work are welcome.
+
+Other scheduler backends should remain adapters rather than growing scheduler-specific concepts into yawl's core model.
 
 ## Install
 
@@ -80,7 +93,7 @@ Local execution defaults to one active task when `-j` is omitted. `-j` is not a 
 
 If `N` exceeds the CPUs available to the local process, yawl prints a warning and the operating system time-slices runnable tasks. This is allowed because `-j` controls task concurrency, not processor allocation.
 
-`-j` is intentionally invalid for Condor campaigns. Condor processor requests are a different concept and belong to the task resource policy in the Yawlfile:
+`-j` is intentionally invalid for Condor, Slurm, and PBS campaigns. Processor requests for queued tasks are a different concept and belong to task resource policy in the Yawlfile:
 
 ```text
 heavy-analysis:
@@ -89,7 +102,7 @@ heavy-analysis:
     ./Analyze input.root
 ```
 
-The Condor backend maps `%cpus 4` to `request_cpus = 4`. Local yawl records `%cpus` as task metadata but does not currently use it as a local scheduling weight.
+Condor maps `%cpus 4` to `request_cpus = 4`. Slurm maps it to `--cpus-per-task=4`. PBS maps it to `select=1:ncpus=4`. Local yawl records `%cpus` as task metadata but does not currently use it as a local scheduling weight.
 
 ## Local progress output
 
@@ -98,13 +111,15 @@ Local `start` emits concise orchestration status to standard output while task s
 ```text
 [local] host=starsub01 pid=12345 jobs=4 cpus_available=64 load1=3.18
 [start] prepare
-[done ] prepare attempt=1 elapsed=0.02s
+[done ] prepare attempt=1 elapsed=0.02s real=0.00s user=0.00s sys=0.00s
 [start] partial-000
 [start] partial-001
-[done ] partial-000 attempt=1 elapsed=1.31s
+[done ] partial-000 attempt=1 elapsed=1.31s real=1.27s user=1.20s sys=0.02s
 ...
 [local] finished completed=10 failed=0 blocked=0
 ```
+
+`elapsed` measures the coordinator's start-to-reconciliation wall time. `real`, `user`, and `sys` are measured around the task command itself and are also stored in `attempt.json`.
 
 Failures include the exit status and the corresponding stderr log path. A failed local campaign causes `yawl-run start` to exit nonzero, which makes ordinary shell use natural:
 
@@ -130,7 +145,7 @@ convert:
 
 `@input.raw` and `@output.root` expand into argv elements. A role can contain several paths, in which case the reference expands to several argv elements.
 
-`@` is for data and named values. `%` is for execution policy. Resource requests are generic yawl-run concepts; the Condor backend translates them into scheduler directives.
+`@` is for data and named values. `%` is for execution policy. Resource requests are generic yawl-run concepts where the backend has a portable translation. `%disk` maps directly for Condor; the experimental Slurm and PBS backends currently record it but deliberately do not invent a site-specific disk/scratch request.
 
 Commands are argv arrays by default. If a task deliberately needs shell syntax, prefix the command with `!`:
 
@@ -205,6 +220,13 @@ yawl-run start campaigns/<local-campaign-id>
 cat pi-work/pi.txt
 ```
 
+The same recipe may be experimentally rendered for another scheduler without editing the file:
+
+```bash
+yawl-run create --backend slurm
+yawl-run create --backend pbs
+```
+
 ## Attempt directories and provenance
 
 Task state is kept compactly under `tasks/`, while attempt directories are immediately visible at campaign level:
@@ -244,7 +266,7 @@ YAWL_PROVENANCE
 
 `YAWL_PROVENANCE` points at the attempt's launch-provenance JSON. Domain-specific programs can embed that record in their own output format. For example, LFHCal can copy it into a ROOT file without teaching generic yawl-run anything about ROOT.
 
-After the command finishes, `attempt.json` records the return code, finish time, stdout/stderr locations, and observed output metadata. Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
+After the command finishes, `attempt.json` records the return code, finish time, timing, stdout/stderr locations, and observed output metadata. Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
 
 ## Condor / DAGMan
 
@@ -274,7 +296,15 @@ yawl-run status ./campaigns/<campaign-id>
 
 For active Condor campaigns, status reports the DAGMan controller separately from its DAG nodes and maps active `DAGNodeName` values back to yawl task names.
 
-## Condor execution wrapper
+## Experimental Slurm and PBS
+
+Slurm campaigns render one `sbatch` script per yawl task. `start` submits every task in a held state, wires parent job IDs with `afterok` dependencies, records the scheduler IDs, marks the yawl campaign started, and releases the jobs. If graph submission fails partway through, yawl best-effort cancels the already-submitted held jobs and leaves the campaign unstarted.
+
+PBS uses the same strategy with `qsub -h`, `-W depend=afterok:...`, and `qrls`. `%retry` is implemented inside each Slurm/PBS batch script so the scheduler sees one node whose final exit status reflects all allowed attempts.
+
+Both experimental adapters assume the campaign directory and declared paths are accessible from execution nodes. Slurm status uses `squeue`; PBS status uses `qstat -f`. These adapters are CI-tested against simulated command behavior, not yet certified against a production installation.
+
+## Execution wrapper
 
 A site or container wrapper can be configured without teaching yawl-run anything detector-specific:
 
@@ -286,7 +316,7 @@ backend condor
 %wrapper /path/to/run-in-container.sh
 ```
 
-When the campaign is created, yawl-run copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `%getenv true`.
+When the campaign is created, yawl-run copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes the queued task invoke the bundled yawl worker through that archived wrapper. The experimental Slurm and PBS backends use the same wrapper mechanism. `%getenv` maps directly to Condor and PBS behavior; Slurm currently relies on its normal exported environment.
 
 ## Design rule
 
@@ -294,4 +324,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-0.6.1: explicit Yawlfile -> campaign -> start lifecycle, local-only `-j` frozen at campaign creation, local progress/error reporting, flattened attempt directories, pattern-task fan-out/fan-in, Condor resource requests, and portable per-attempt launch provenance.
+0.7.0: supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
