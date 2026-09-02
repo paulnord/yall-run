@@ -61,6 +61,20 @@ def begin_campaign(campaign_dir: str | Path, max_jobs: int | None = None) -> Pat
         previous = _read_json(start_path)
         when = previous.get("started_at", "previously")
         raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
+
+    previously_attempted = []
+    for name in manifest.get("tasks", []):
+        task = _read_json(_task_path(campaign_dir, name))
+        if task.get("state", "pending") != "pending" or int(task.get("attempts", 0)) > 0:
+            previously_attempted.append(name)
+    if previously_attempted:
+        names = ", ".join(previously_attempted[:3])
+        if len(previously_attempted) > 3:
+            names += ", ..."
+        raise ValueError(
+            f"campaign already contains task attempts ({names}); create a new campaign"
+        )
+
     _write_json(start_path, {
         "started_at": _utc_now(),
         "backend": manifest.get("backend", "local"),
