@@ -45,6 +45,43 @@ def test_sqrt2_dependency_chain_example(tmp_path, monkeypatch, capsys):
     assert abs(float(values["sqrt2"]) - math.sqrt(2.0)) < 1.0e-9
 
 
+def test_sqrt2_binomial_map_reduce_example(tmp_path, monkeypatch, capsys):
+    example = _copy_example(tmp_path, "sqrt2-binomial")
+    monkeypatch.chdir(example)
+
+    spec = load_spec("Yawlfile")
+    assert len(spec.tasks) == 11
+    assert [task.name for task in spec.tasks[:2]] == ["prepare", "partial-000"]
+    tasks = {task.name: task for task in spec.tasks}
+    assert tasks["sum"].parents == tuple(f"partial-{i:03d}" for i in range(8))
+    assert len(tasks["sum"].inputs) == 8
+    assert tasks["check"].parents == ("sum",)
+
+    campaign_dir = create_campaign(
+        spec,
+        tmp_path / "campaigns",
+        backend="local",
+        local_jobs=4,
+    )
+    start_local(campaign_dir)
+    output = capsys.readouterr().out
+
+    for i in range(8):
+        assert output.index(f"[done ] partial-{i:03d}") < output.index("[start] sum")
+    assert output.index("[done ] sum") < output.index("[start] check")
+    assert campaign_status(campaign_dir)["counts"] == {"completed": 11}
+
+    values = dict(
+        line.split("=", 1)
+        for line in (
+            example / "sqrt2-binomial-work" / "sqrt2.txt"
+        ).read_text().splitlines()
+    )
+    assert int(values["terms"]) == 40_000
+    assert abs(float(values["sqrt2"]) - math.sqrt(2.0)) < 5.0e-8
+    assert (example / "sqrt2-binomial-work" / "check.txt").is_file()
+
+
 def test_e_hierarchical_reduction_example(tmp_path, monkeypatch, capsys):
     example = _copy_example(tmp_path, "e")
     monkeypatch.chdir(example)
