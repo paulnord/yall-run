@@ -94,10 +94,10 @@ def create_campaign(
         if jobs < 1:
             raise ValueError("-j/--jobs must be positive")
         execution = {"local": {"jobs": jobs}}
-    elif selected_backend == "condor":
+    elif selected_backend in {"condor", "slurm", "pbs"}:
         if local_jobs is not None:
             raise ValueError("-j/--jobs is only valid for the local backend")
-        execution = {"condor": {}}
+        execution = {selected_backend: {}}
     else:
         raise ValueError(f"unknown campaign backend: {selected_backend}")
 
@@ -176,22 +176,37 @@ def _load_one() -> float | None:
         return None
 
 
-def _timing_text(campaign_dir: Path, task_name: str, attempt: int) -> str:
-    attempt_path = campaign_dir / f"{task_name}_attempt_{attempt:03d}" / "attempt.json"
+def _attempt_timing(campaign_dir: Path, task_name: str, attempt: int) -> dict[str, float]:
+    if attempt < 1:
+        return {}
+    path = campaign_dir / f"{task_name}_attempt_{attempt:03d}" / "attempt.json"
     try:
-        timing = _read_json(attempt_path).get("timing", {})
+        record = _read_json(path)
     except (OSError, json.JSONDecodeError):
-        timing = {}
+        return {}
+    timing = record.get("timing")
+    if not isinstance(timing, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key in ("real_seconds", "user_seconds", "sys_seconds"):
+        value = timing.get(key)
+        if isinstance(value, (int, float)):
+            result[key] = float(value)
+    return result
 
-    fields = []
+
+def _timing_suffix(timing: dict[str, float]) -> str:
+    if not timing:
+        return ""
+    parts = []
     for label, key in (
         ("real", "real_seconds"),
         ("user", "user_seconds"),
         ("sys", "sys_seconds"),
     ):
-        value = timing.get(key)
-        fields.append(f"{label}={float(value):.2f}s" if value is not None else f"{label}=?")
-    return " ".join(fields)
+        if key in timing:
+            parts.append(f"{label}={timing[key]:.2f}s")
+    return (" " + " ".join(parts)) if parts else ""
 
 
 def start_local(campaign_dir: str | Path) -> Path:
@@ -262,17 +277,19 @@ def start_local(campaign_dir: str | Path) -> Path:
                     elapsed = time.monotonic() - started
                     task = _read_json(_task_path(campaign_dir, name))
                     attempt = int(task.get("attempts", 0))
-                    timing = _timing_text(campaign_dir, name, attempt)
+                    timing = _attempt_timing(campaign_dir, name, attempt)
+                    timing_text = _timing_suffix(timing)
                     if result == 0:
                         print(
-                            f"[done ] {name} attempt={attempt} elapsed={elapsed:.2f}s {timing}",
+                            f"[done ] {name} attempt={attempt} elapsed={elapsed:.2f}s"
+                            f"{timing_text}",
                             flush=True,
                         )
                     else:
                         stderr = f"{name}_attempt_{attempt:03d}/stderr.log"
                         print(
                             f"[FAIL ] {name} attempt={attempt} exit={result} "
-                            f"elapsed={elapsed:.2f}s {timing} stderr={stderr}",
+                            f"elapsed={elapsed:.2f}s{timing_text} stderr={stderr}",
                             flush=True,
                         )
                 progressed = True
