@@ -12,12 +12,13 @@ yawl-run is a deliberately small campaign runner for reproducible analysis work.
 The core model is:
 
 ```text
-campaign
-  task
-    attempt
+Yawlfile
+  -> campaign
+       -> task
+            -> attempt
 ```
 
-The same campaign can run locally or through HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
+A `Yawlfile` is a reusable recipe, much like a Makefile. A campaign is one frozen instance of that recipe. The same Yawlfile can be instantiated for local execution or HTCondor/DAGMan. yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, lightweight file provenance, and backend adapters. Condor still owns scheduling, resource matching, queue policy, holds, and execution hosts.
 
 > Naming note: yawl-run is not the YAWL (Yet Another Workflow Language) workflow system.
 
@@ -52,10 +53,30 @@ Save that as `Yawlfile`, then:
 ```bash
 yawl-run validate
 yawl-run plan
-yawl-run start --root ./campaigns
+yawl-run create --root ./campaigns
 ```
 
-There is one campaign language: Yawlfile syntax. Old TOML campaign files are not supported.
+`create` prints the new campaign directory but runs nothing. Start that exact campaign with:
+
+```bash
+yawl-run start ./campaigns/<campaign-id>
+```
+
+There is one launch operation: `start CAMPAIGN_DIR`. Creating another run means creating another campaign.
+
+There is also one campaign language: Yawlfile syntax. Old TOML campaign files are not supported.
+
+## Parallelism: `-j`
+
+`-j N` limits the number of yawl tasks active at once:
+
+```bash
+yawl-run start ./campaigns/<campaign-id> -j 4
+```
+
+For the local backend, yawl runs up to `N` dependency-ready tasks concurrently. Local execution defaults to `-j 1` when no limit is given.
+
+For Condor, yawl passes the limit to DAGMan when the frozen campaign is started. Without `-j`, Condor/DAGMan uses its normal scheduler limits.
 
 ## Data is `@`, execution policy is `%`
 
@@ -132,66 +153,82 @@ in eight independent chunks. Every worker runs the same `partial_pi.py` program.
 cd examples/pi
 yawl-run validate
 yawl-run plan
-yawl-run start --dry-run
+yawl-run create
 ```
 
-The last command renders the Condor DAG without submitting it. Submit the exact rendered campaign with `yawl-run submit CAMPAIGN_DIR`.
-
-For a local end-to-end smoke test:
+The Yawlfile declares `backend condor`, so `create` freezes the campaign and renders its DAG without submitting anything. Start the printed campaign directory with:
 
 ```bash
-yawl-run start --backend local
+yawl-run start campaigns/<campaign-id> -j 4
+```
+
+For a local smoke test, create a separate local campaign from the same Yawlfile:
+
+```bash
+yawl-run create --backend local
+# use the printed campaign directory
+yawl-run start campaigns/<local-campaign-id> -j 4
 cat pi-work/pi.txt
 ```
 
-## Task commands and provenance
+## Attempt directories and provenance
 
-For every attempt, yawl-run records the resolved input paths and their existence, size, type, and modification time at launch. Outputs are inspected after the command finishes.
-
-Task state is kept compactly in `tasks/<name>.json`. Human-facing attempt directories sit directly under the campaign directory:
+Task state is kept compactly under `tasks/`, while attempt directories are immediately visible at campaign level:
 
 ```text
 campaign.json
 provenance.json
+start.json
 tasks/
-  partial-000.json
-  partial-001.json
-  sum.json
+    partial-000.json
+    sum.json
 partial-000_attempt_001/
-  attempt.json
-  stdout.log
-  stderr.log
-partial-001_attempt_001/
-  attempt.json
-  stdout.log
-  stderr.log
+    provenance.json
+    attempt.json
+    stdout.log
+    stderr.log
 sum_attempt_001/
-  attempt.json
-  stdout.log
-  stderr.log
+    provenance.json
+    attempt.json
+    stdout.log
+    stderr.log
 ```
 
-Retries become `sum_attempt_002`, `sum_attempt_003`, and so on. This keeps the detailed provenance while making the directories people actually inspect easy to reach.
+`provenance.json` inside each attempt is written **before** the task begins and is not rewritten afterward. It contains portable launch provenance: campaign identity, task and attempt identity, command, cwd, resolved inputs, declared outputs, requested resources, execution host, Python version, and start time.
+
+The launched program also receives:
+
+```text
+YAWL_CAMPAIGN_ID
+YAWL_CAMPAIGN_NAME
+YAWL_CAMPAIGN_DIR
+YAWL_BACKEND
+YAWL_TASK
+YAWL_ATTEMPT
+YAWL_PROVENANCE
+```
+
+`YAWL_PROVENANCE` points at the attempt's launch-provenance JSON. Domain-specific programs can embed that record in their own output format. For example, LFHCal can copy it into a ROOT file without teaching generic yawl-run anything about ROOT.
+
+After the command finishes, `attempt.json` records the return code, finish time, stdout/stderr locations, and observed output metadata. Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
 
 ## Condor / DAGMan
 
-First render everything without submitting:
+For a Condor Yawlfile:
 
 ```bash
-yawl-run start --backend condor --root ./campaigns --dry-run
+yawl-run create --root ./campaigns
 ```
 
-The generated campaign contains the DAG, per-node submit files, a bundled worker, scheduler logs, and the durable yawl-run task records.
+creates the durable campaign, DAG, per-node submit files, bundled worker, scheduler log paths, and task state, but does not submit the DAG.
 
-Inspect that rendered campaign, then submit that exact artifact:
+Inspect that campaign if desired, then launch that exact artifact:
 
 ```bash
-yawl-run submit ./campaigns/<campaign-id>
+yawl-run start ./campaigns/<campaign-id>
 ```
 
-A rendered campaign can be submitted only once. This keeps the reviewed DAG and the submitted DAG identical.
-
-DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable yawl campaign record rather than living only in scheduler history.
+A campaign can be started only once. To run the workflow again, create a new campaign from the Yawlfile.
 
 Check state with:
 
@@ -213,7 +250,7 @@ backend condor
 %wrapper /path/to/run-in-container.sh
 ```
 
-When the campaign is rendered, yawl-run copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `%getenv true`.
+When the campaign is created, yawl-run copies the wrapper into `environment/`, records its source path, size, and SHA-256, and makes each Condor node invoke the bundled yawl worker through that archived wrapper. Environment variables needed by the wrapper can still be inherited with `%getenv true`.
 
 ## Design rule
 
@@ -221,4 +258,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-0.5: one human-readable campaign format, local and Condor/DAGMan backends, pattern-task fan-out/fan-in, named data references, resource policy, and durable attempt provenance.
+0.6: explicit Yawlfile -> campaign -> start lifecycle, one launch path, local/Condor `-j` throttling, flattened attempt directories, pattern-task fan-out/fan-in, and portable per-attempt launch provenance.
