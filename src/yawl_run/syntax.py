@@ -197,8 +197,10 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 continue
             if stripped.startswith("backend "):
                 backend = stripped[len("backend "):].strip().lower()
-                if backend not in {"local", "condor"}:
-                    raise ValueError(f"line {lineno}: backend must be local or condor")
+                if backend not in {"local", "condor", "slurm", "pbs"}:
+                    raise ValueError(
+                        f"line {lineno}: backend must be local, condor, slurm, or pbs"
+                    )
                 continue
             if stripped.startswith("@set "):
                 parts = shlex.split(stripped)
