@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -10,6 +11,7 @@ import platform
 import sys
 from typing import Any
 
+from . import __version__
 from .model import CampaignSpec
 from .paths import logical_absolute, logical_cwd
 from .worker import run_task
@@ -39,6 +41,31 @@ def _task_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / f"{task_name}.json"
 
 
+def campaign_manifest(campaign_dir: str | Path) -> tuple[Path, dict[str, Any]]:
+    campaign_dir = logical_absolute(campaign_dir)
+    manifest_path = campaign_dir / "campaign.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+    return campaign_dir, _read_json(manifest_path)
+
+
+def begin_campaign(campaign_dir: str | Path, max_jobs: int | None = None) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if max_jobs is not None and max_jobs < 1:
+        raise ValueError("-j/--jobs must be positive")
+    start_path = campaign_dir / "start.json"
+    if start_path.exists():
+        previous = _read_json(start_path)
+        when = previous.get("started_at", "previously")
+        raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
+    _write_json(start_path, {
+        "started_at": _utc_now(),
+        "backend": manifest.get("backend", "local"),
+        "max_jobs": max_jobs,
+    })
+    return campaign_dir
+
+
 def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = None) -> Path:
     root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
@@ -48,11 +75,12 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     launch_cwd = logical_cwd()
 
     manifest = {
-        "schema": 4,
+        "schema": 5,
         "id": campaign_dir.name,
         "name": spec.name,
         "backend": selected_backend,
         "created_at": _utc_now(),
+        "yawl_version": __version__,
         "spec_source": str(spec.source),
         "tasks": [task.name for task in spec.tasks],
     }
@@ -88,46 +116,69 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     return campaign_dir
 
 
-def start_local(spec: CampaignSpec, root: str | Path) -> Path:
-    campaign_dir = create_campaign(spec, root, backend="local")
-    by_name = {task.name: task for task in spec.tasks}
-    remaining = set(by_name)
+def _run_with_retries(campaign_dir: Path, task_name: str) -> int:
+    task = _read_json(_task_path(campaign_dir, task_name))
+    result = 1
+    for _ in range(int(task.get("retries", 0)) + 1):
+        result = run_task(campaign_dir, task_name)
+        if result == 0:
+            break
+    return result
 
-    while remaining:
-        progressed = False
-        for name in list(remaining):
-            task = by_name[name]
-            parent_states = {
-                parent: _read_json(_task_path(campaign_dir, parent))["state"]
-                for parent in task.parents
-            }
-            if any(state in {"failed", "blocked"} for state in parent_states.values()):
-                path = _task_path(campaign_dir, name)
-                record = _read_json(path)
-                record["state"] = "blocked"
-                _write_json(path, record)
+
+def start_local(campaign_dir: str | Path, jobs: int = 1) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if manifest.get("backend", "local") != "local":
+        raise ValueError(f"campaign backend is not local: {campaign_dir}")
+    if jobs < 1:
+        raise ValueError("-j/--jobs must be positive")
+    begin_campaign(campaign_dir, jobs)
+
+    task_names = list(manifest["tasks"])
+    remaining = set(task_names)
+    running: dict[Future[int], str] = {}
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        while remaining or running:
+            progressed = False
+
+            for name in task_names:
+                if name not in remaining or len(running) >= jobs:
+                    continue
+                task = _read_json(_task_path(campaign_dir, name))
+                parent_states = {
+                    parent: _read_json(_task_path(campaign_dir, parent))["state"]
+                    for parent in task.get("parents", [])
+                }
+                if any(state in {"failed", "blocked"} for state in parent_states.values()):
+                    task["state"] = "blocked"
+                    _write_json(_task_path(campaign_dir, name), task)
+                    remaining.remove(name)
+                    progressed = True
+                    continue
+                if not all(state == "completed" for state in parent_states.values()):
+                    continue
+
+                future = pool.submit(_run_with_retries, campaign_dir, name)
+                running[future] = name
                 remaining.remove(name)
                 progressed = True
-                continue
-            if not all(state == "completed" for state in parent_states.values()):
-                continue
-            for _ in range(task.retries + 1):
-                if run_task(campaign_dir, name) == 0:
-                    break
-            remaining.remove(name)
-            progressed = True
-        if not progressed:
-            raise RuntimeError("campaign dependency graph made no progress")
+
+            if running:
+                done, _ = wait(running, return_when=FIRST_COMPLETED)
+                for future in done:
+                    running.pop(future)
+                    future.result()
+                progressed = True
+
+            if not progressed and remaining:
+                raise RuntimeError("campaign dependency graph made no progress")
+
     return campaign_dir
 
 
-# Original prototype API; retained while the backend abstraction settles.
-start_campaign = start_local
-
-
 def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
-    campaign_dir = logical_absolute(campaign_dir)
-    manifest = _read_json(campaign_dir / "campaign.json")
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
     tasks = []
     counts: dict[str, int] = {}
     for name in manifest["tasks"]:
