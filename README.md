@@ -77,9 +77,23 @@ yawl-run create --campaigns-dir ./campaigns
 yawl-run start ./campaigns/<campaign-id>
 ```
 
+Because `create` writes the new campaign path to standard output, it can also feed `start` directly:
+
+```bash
+yawl-run create | yawl-run start
+```
+
+Options naturally stay on the `create` side of the pipe:
+
+```bash
+yawl-run create --backend local -j 4 | yawl-run start
+```
+
+When `CAMPAIGN_DIR` is supplied explicitly, `start` uses that argument. When it is omitted, `start` reads exactly one nonblank campaign path from standard input.
+
 `--campaigns-dir` names the directory that will contain newly created campaign directories. It defaults to `./campaigns`. The old prototype name `--root` is intentionally retired because it was ambiguous, especially in workflows that use CERN ROOT files.
 
-There is one launch operation: `start CAMPAIGN_DIR`. Creating another run means creating another campaign.
+There is one launch operation: `start`. Creating another run means creating another campaign.
 
 There is also one campaign language: Yawlfile syntax. Old TOML campaign files are not supported.
 
@@ -226,9 +240,7 @@ The Yawlfile declares `backend condor`, so `create` freezes the campaign and ren
 For a local smoke test, create a separate local campaign from the same Yawlfile and freeze the desired local concurrency at creation time:
 
 ```bash
-yawl-run create --backend local -j 4
-# use the printed campaign directory
-yawl-run start campaigns/<local-campaign-id>
+yawl-run create --backend local -j 4 | yawl-run start
 cat pi-work/pi.txt
 ```
 
@@ -299,6 +311,12 @@ Inspect that campaign if desired, then launch that exact artifact:
 yawl-run start ./campaigns/<campaign-id>
 ```
 
+or create and submit it in one shell pipeline:
+
+```bash
+yawl-run create --campaigns-dir ./campaigns | yawl-run start
+```
+
 `start` streams `condor_submit_dag` output to the terminal instead of hiding it. A failed Condor submission does not mark the campaign as successfully started.
 
 A campaign can be started only once. To run the workflow again, create a new campaign from the Yawlfile.
@@ -339,4 +357,4 @@ A feature belongs in yawl-run when it expresses a portable workflow concept: tas
 
 ## Status
 
-0.8.0: schema 7 stores frozen task definitions and campaign creation provenance once in `campaign.json`, with compact mutable task state under `state/`; supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; `--campaigns-dir` for campaign placement; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
+0.8.1: `start` accepts a campaign path either as its argument or as one line on standard input, so `yawl-run create | yawl-run start` works directly; schema 7 stores frozen task definitions and campaign creation provenance once in `campaign.json`, with compact mutable task state under `state/`; supported local and HTCondor/DAGMan execution; experimental Slurm and PBS adapters with native dependency submission; explicit Yawlfile -> campaign -> start lifecycle; `--campaigns-dir` for campaign placement; local-only `-j` frozen at campaign creation; local progress/error/timing reporting; flattened attempt directories; pattern-task fan-out/fan-in; portable per-attempt launch provenance.
