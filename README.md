@@ -6,8 +6,6 @@
 
 **Yet Another Workflow Layer**  
 **Y'all run!**
-**Yet Another Workflow Layer**  
-**Y'all run!**
 
 YAWL-run is a deliberately small campaign runner for reproducible analysis work. It sits *above* a batch system rather than trying to become one.
 
