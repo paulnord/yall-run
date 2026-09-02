@@ -44,8 +44,44 @@ def _inspect_file(ref: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _task_path(campaign_dir: Path, task_name: str) -> Path:
+def _legacy_task_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / f"{task_name}.json"
+
+
+def _state_path(campaign_dir: Path, task_name: str) -> Path:
+    return campaign_dir / "state" / f"{task_name}.json"
+
+
+def _task_definition(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> dict[str, Any]:
+    tasks = manifest.get("tasks", {})
+    if isinstance(tasks, dict):
+        task = tasks.get(task_name)
+        if not isinstance(task, dict):
+            raise ValueError(f"unknown task: {task_name}")
+        return task
+    path = _legacy_task_path(campaign_dir, task_name)
+    if not path.is_file():
+        raise ValueError(f"unknown task: {task_name}")
+    return _read_json(path)
+
+
+def _write_task_state(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+    state: dict[str, Any],
+) -> None:
+    if isinstance(manifest.get("tasks"), dict):
+        _write_json(_state_path(campaign_dir, task_name), state)
+        return
+    legacy_path = _legacy_task_path(campaign_dir, task_name)
+    task = _read_json(legacy_path)
+    task.update(state)
+    _write_json(legacy_path, task)
 
 
 def _next_attempt_number(campaign_dir: Path, task_name: str) -> int:
@@ -112,12 +148,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if not manifest_path.exists():
         raise ValueError(f"not a yawl campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
+    task = _task_definition(campaign_dir, manifest, task_name)
 
-    task_path = _task_path(campaign_dir, task_name)
-    if not task_path.exists():
-        raise ValueError(f"unknown task: {task_name}")
-
-    task = _read_json(task_path)
     number = _next_attempt_number(campaign_dir, task_name)
     attempt_dir = campaign_dir / f"{task_name}_attempt_{number:03d}"
     attempt_dir.mkdir(parents=False, exist_ok=False)
@@ -169,9 +201,10 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "inputs": inputs,
         "provenance": str(provenance_path),
     })
-    task["state"] = "running"
-    task["attempts"] = number
-    _write_json(task_path, task)
+    _write_task_state(campaign_dir, manifest, task_name, {
+        "state": "running",
+        "attempts": number,
+    })
 
     env = os.environ.copy()
     env.update({
@@ -213,10 +246,11 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
     })
-    task["state"] = state
-    task["attempts"] = number
-    task["last_returncode"] = returncode
-    _write_json(task_path, task)
+    _write_task_state(campaign_dir, manifest, task_name, {
+        "state": state,
+        "attempts": number,
+        "last_returncode": returncode,
+    })
     return returncode
 
 
