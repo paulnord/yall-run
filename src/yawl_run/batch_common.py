@@ -123,3 +123,30 @@ def load_backend_campaign(
     if manifest.get("backend") != backend:
         raise ValueError(f"campaign backend is not {backend}: {campaign_dir}")
     return campaign_dir, manifest
+
+
+def campaign_task_names(manifest: dict[str, Any]) -> list[str]:
+    order = manifest.get("task_order")
+    if isinstance(order, list):
+        return [str(name) for name in order]
+    tasks = manifest.get("tasks", [])
+    if isinstance(tasks, dict):
+        return [str(name) for name in tasks]
+    return [str(name) for name in tasks]
+
+
+def campaign_task_definition(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> dict[str, Any]:
+    tasks = manifest.get("tasks", {})
+    if isinstance(tasks, dict):
+        task = tasks.get(task_name)
+        if not isinstance(task, dict):
+            raise ValueError(f"unknown task: {task_name}")
+        return task
+    path = campaign_dir / "tasks" / f"{task_name}.json"
+    if not path.is_file():
+        raise ValueError(f"unknown task: {task_name}")
+    return read_json(path)
