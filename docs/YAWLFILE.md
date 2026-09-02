@@ -24,13 +24,15 @@ A task header is `task-name:` followed by zero or more parent task names. Indent
 
 Backends are `local`, `condor`, `slurm`, and `pbs`. Slurm and PBS support is experimental.
 
-If the file is named `Yawlfile`, the specification argument is optional:
+If the file is named exactly `Yawlfile`, the specification argument is optional:
 
 ```bash
 yawl-run validate
 yawl-run plan
 yawl-run create
 ```
+
+`Yawlfile` is the canonical default spelling. On a case-sensitive filesystem, `yawlfile` and `YAWLFILE` are different filenames. A differently named workflow file can be supplied explicitly.
 
 `create` freezes the expanded task graph into a new campaign directory and runs nothing. By default, new campaign directories are created under `./campaigns`. Choose another container directory with:
 
@@ -218,6 +220,23 @@ The resulting `summary` task depends on every expanded pedestal task, and its `@
 
 `examples/pi/Yawlfile` is a complete map-reduce example. Eight `partial-{chunk}` tasks run the same Python worker against different range files, then one `sum` task fans in all eight outputs.
 
+## Campaign records
+
+When a campaign is created, the frozen workflow is stored once in `campaign.json`. The current state of each task is kept separately in compact files:
+
+```text
+campaign.json
+start.json
+state/
+    partial-000.json
+    partial-001.json
+    sum.json
+```
+
+`campaign.json` contains campaign identity, creation environment, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, and outputs.
+
+The files under `state/` are mutable bookkeeping only. They contain the current task state, attempt count, and, after execution, the most recent return code. Keeping these files small lets workers update state independently without duplicating the full task definition.
+
 ## Portable attempt provenance
 
 Before each task attempt begins, yawl writes:
@@ -240,7 +259,7 @@ YAWL_ATTEMPT
 YAWL_PROVENANCE
 ```
 
-`YAWL_PROVENANCE` points to that JSON file. Analysis-specific software may copy or embed it into native outputs such as ROOT files. yawl-run itself remains format-agnostic.
+`YAWL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yawl-run remains format-agnostic.
 
 `attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, and observed output metadata.
 
