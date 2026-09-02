@@ -5,5 +5,6 @@ __pycache__/
 .venv/
 venv/
 campaigns/
+pi-work/
 dist/
 build/
