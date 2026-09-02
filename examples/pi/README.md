@@ -21,7 +21,7 @@ The Yawlfile declares `backend condor`, so `create` freezes the campaign and ren
 Start that campaign with:
 
 ```bash
-yawl-run start campaigns/<campaign-id> -j 4
+yawl-run start campaigns/<campaign-id>
 ```
 
 After completion, the combined estimate is in:
@@ -30,12 +30,14 @@ After completion, the combined estimate is in:
 pi-work/pi.txt
 ```
 
-For a local smoke test, create a separate local campaign from the same Yawlfile:
+For a local smoke test, create a separate local campaign from the same Yawlfile and choose local task concurrency when the campaign is created:
 
 ```bash
-yawl-run create --backend local
-yawl-run start campaigns/<local-campaign-id> -j 4
+yawl-run create --backend local -j 4
+yawl-run start campaigns/<local-campaign-id>
 cat pi-work/pi.txt
 ```
+
+`-j` is local-only. Condor processor requests are expressed per task with `%cpus` in the Yawlfile.
 
 Each task attempt has a top-level directory such as `partial-000_attempt_001/`. Its `provenance.json` exists before the worker starts, and the worker receives its path in `YAWL_PROVENANCE`.
