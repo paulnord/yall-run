@@ -2,11 +2,16 @@
 
 This example computes the Leibniz series
 
-```text
-pi = 4 * (1 - 1/3 + 1/5 - 1/7 + ...)
-```
+$$
+\pi = 4\sum_{n=0}^{\infty}\frac{(-1)^n}{2n+1}
+    = 4\left(1-\frac13+\frac15-\frac17+\cdots\right).
+$$
 
-in eight independent chunks. Every worker runs the same `partial_pi.py` program on a different range file. The final `sum` task depends on the whole `partial-{chunk}` family and receives every partial result through `@input.partial`.
+The series is mathematically simple and embarrassingly parallel, which makes it a useful workflow example. It is **not a good practical algorithm for computing pi**. The Leibniz series converges extremely slowly: after $N$ terms, the error is only of order $1/N$. Getting many correct digits therefore requires an absurd number of terms compared with modern algorithms for pi.
+
+That weakness is useful here. The computation is easy to understand, easy to split into independent pieces, and large enough to demonstrate fan-out and fan-in without hiding the workflow behind sophisticated numerical machinery.
+
+The calculation is divided into eight independent chunks. Every worker runs the same `partial_pi.py` program on a different range file. The final `sum` task depends on the whole `partial-{chunk}` family and receives every partial result through `@input.partial`.
 
 From this directory:
 
@@ -24,6 +29,12 @@ Start that campaign with:
 yawl-run start campaigns/<campaign-id>
 ```
 
+or create and start it directly:
+
+```bash
+yawl-run create | yawl-run start
+```
+
 After completion, the combined estimate is in:
 
 ```text
@@ -33,8 +44,7 @@ pi-work/pi.txt
 For a local smoke test, create a separate local campaign from the same Yawlfile and choose local task concurrency when the campaign is created:
 
 ```bash
-yawl-run create --backend local -j 4
-yawl-run start campaigns/<local-campaign-id>
+yawl-run create --backend local -j 4 | yawl-run start
 cat pi-work/pi.txt
 ```
 
