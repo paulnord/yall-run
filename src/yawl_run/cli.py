@@ -29,7 +29,11 @@ def _parser() -> argparse.ArgumentParser:
 
     create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
     create.add_argument("spec", nargs="?", default="Yawlfile")
-    create.add_argument("--root", default="./campaigns")
+    create.add_argument(
+        "--campaigns-dir",
+        default="./campaigns",
+        help="directory that will contain newly created campaign directories",
+    )
     create.add_argument("--backend", choices=("local", "condor", "slurm", "pbs"))
     create.add_argument(
         "-j",
@@ -103,15 +107,15 @@ def main(argv: list[str] | None = None) -> int:
             if backend != "local" and args.jobs is not None:
                 raise ValueError("-j/--jobs is only valid for the local backend")
             if backend == "condor":
-                cdir = render_condor(spec, args.root)
+                cdir = render_condor(spec, args.campaigns_dir)
             elif backend == "slurm":
-                cdir = render_slurm(spec, args.root)
+                cdir = render_slurm(spec, args.campaigns_dir)
             elif backend == "pbs":
-                cdir = render_pbs(spec, args.root)
+                cdir = render_pbs(spec, args.campaigns_dir)
             elif backend == "local":
                 cdir = create_campaign(
                     spec,
-                    args.root,
+                    args.campaigns_dir,
                     backend="local",
                     local_jobs=args.jobs,
                 )
