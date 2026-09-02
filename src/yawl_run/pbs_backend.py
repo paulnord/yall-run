@@ -8,6 +8,8 @@ from typing import Any
 from .batch_common import (
     archive_wrapper,
     bundle_worker,
+    campaign_task_definition,
+    campaign_task_names,
     load_backend_campaign,
     normalize_memory,
     read_json,
@@ -130,7 +132,8 @@ def submit_pbs(campaign_dir: str | Path) -> Path:
         raise ValueError(f"campaign has already been started: {campaign_dir}")
 
     scripts = render.get("scripts", {})
-    remaining = set(manifest["tasks"])
+    task_names = campaign_task_names(manifest)
+    remaining = set(task_names)
     job_ids: dict[str, str] = {}
     commands: list[list[str]] = []
     print(f"[pbs] submitting {len(remaining)} held jobs", flush=True)
@@ -138,10 +141,10 @@ def submit_pbs(campaign_dir: str | Path) -> Path:
     try:
         while remaining:
             progressed = False
-            for name in manifest["tasks"]:
+            for name in task_names:
                 if name not in remaining:
                     continue
-                task = read_json(campaign_dir / "tasks" / f"{name}.json")
+                task = campaign_task_definition(campaign_dir, manifest, name)
                 parents = list(task.get("parents", []))
                 if not all(parent in job_ids for parent in parents):
                     continue
