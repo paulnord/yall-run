@@ -24,6 +24,9 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     assert "cpus_available=" in output
     assert "[start] left" in output
     assert "[done ] finish" in output
+    assert "real=" in output
+    assert "user=" in output
+    assert "sys=" in output
     assert "[local] finished completed=3 failed=0 blocked=0" in output
 
     status = campaign_status(campaign_dir)
@@ -105,6 +108,11 @@ def test_argv_command_file_and_launch_provenance(tmp_path):
     assert attempt["inputs"][0]["exists"] is True
     assert attempt["outputs"][0]["role"] == "result"
     assert attempt["outputs"][0]["exists"] is True
+    assert attempt["timing"]["real_seconds"] >= 0
+    if attempt["timing"]["user_seconds"] is not None:
+        assert attempt["timing"]["user_seconds"] >= 0
+    if attempt["timing"]["sys_seconds"] is not None:
+        assert attempt["timing"]["sys_seconds"] >= 0
     assert provenance["campaign"]["id"] == campaign_dir.name
     assert provenance["task"]["name"] == "transform"
     assert provenance["task"]["attempt"] == 1
