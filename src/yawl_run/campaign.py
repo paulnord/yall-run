@@ -176,6 +176,24 @@ def _load_one() -> float | None:
         return None
 
 
+def _timing_text(campaign_dir: Path, task_name: str, attempt: int) -> str:
+    attempt_path = campaign_dir / f"{task_name}_attempt_{attempt:03d}" / "attempt.json"
+    try:
+        timing = _read_json(attempt_path).get("timing", {})
+    except (OSError, json.JSONDecodeError):
+        timing = {}
+
+    fields = []
+    for label, key in (
+        ("real", "real_seconds"),
+        ("user", "user_seconds"),
+        ("sys", "sys_seconds"),
+    ):
+        value = timing.get(key)
+        fields.append(f"{label}={float(value):.2f}s" if value is not None else f"{label}=?")
+    return " ".join(fields)
+
+
 def start_local(campaign_dir: str | Path) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
@@ -244,16 +262,17 @@ def start_local(campaign_dir: str | Path) -> Path:
                     elapsed = time.monotonic() - started
                     task = _read_json(_task_path(campaign_dir, name))
                     attempt = int(task.get("attempts", 0))
+                    timing = _timing_text(campaign_dir, name, attempt)
                     if result == 0:
                         print(
-                            f"[done ] {name} attempt={attempt} elapsed={elapsed:.2f}s",
+                            f"[done ] {name} attempt={attempt} elapsed={elapsed:.2f}s {timing}",
                             flush=True,
                         )
                     else:
                         stderr = f"{name}_attempt_{attempt:03d}/stderr.log"
                         print(
                             f"[FAIL ] {name} attempt={attempt} exit={result} "
-                            f"elapsed={elapsed:.2f}s stderr={stderr}",
+                            f"elapsed={elapsed:.2f}s {timing} stderr={stderr}",
                             flush=True,
                         )
                 progressed = True
