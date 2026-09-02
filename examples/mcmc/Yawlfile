@@ -1,10 +1,13 @@
 campaign pyroot-langau-mcmc
 backend local
 
+# run-pyroot.sh uses an existing local PyROOT when available, otherwise it
+# enters the standard EIC eic_xl container (CVMFS by default at BNL/JLab).
+
 # Build one synthetic Landau x Gaussian data set and a RooStats ModelConfig.
 prepare:
     @output model mcmc-work/model.root
-    python3 prepare.py @output.model
+    bash run-pyroot.sh python3 prepare.py @output.model
 
 # Each chain is a genuine RooStats::MCMCCalculator run with its own seed.
 chain-{id}: prepare
@@ -13,18 +16,18 @@ chain-{id}: prepare
     @output chain mcmc-work/chain-{id}.root
     %cpus 1
     %memory 1GB
-    python3 run_chain.py @input.model @input.config @output.chain
+    bash run-pyroot.sh python3 run_chain.py @input.model @input.config @output.chain
 
 combine: chain-{id}
     @input chain mcmc-work/chain-{id}.root
     @output posterior mcmc-work/posterior.root
-    python3 combine.py @input.chain -o @output.posterior
+    bash run-pyroot.sh python3 combine.py @input.chain -o @output.posterior
 
 diagnose: combine
     @input posterior mcmc-work/posterior.root
     @output diagnostics mcmc-work/diagnostics.json
     @output summary mcmc-work/summary.txt
-    python3 diagnose.py @input.posterior @output.diagnostics @output.summary
+    bash run-pyroot.sh python3 diagnose.py @input.posterior @output.diagnostics @output.summary
 
 plots: diagnose
     @input model mcmc-work/model.root
@@ -36,4 +39,4 @@ plots: diagnose
     @output traces_png mcmc-work/traces.png
     @output predictive mcmc-work/posterior_predictive.pdf
     @output predictive_png mcmc-work/posterior_predictive.png
-    python3 plot.py @input.model @input.posterior @input.diagnostics mcmc-work
+    bash run-pyroot.sh python3 plot.py @input.model @input.posterior @input.diagnostics mcmc-work
