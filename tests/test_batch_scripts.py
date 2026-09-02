@@ -12,7 +12,10 @@ from yawl_run.slurm_backend import render_slurm
     ("backend", "renderer"),
     (("slurm", render_slurm), ("pbs", render_pbs)),
 )
-def test_generated_batch_script_executes_bundled_worker(tmp_path, backend, renderer):
+def test_generated_batch_script_executes_bundled_worker(
+    tmp_path, monkeypatch, backend, renderer
+):
+    monkeypatch.chdir(tmp_path)
     spec_file = tmp_path / "Yawlfile"
     spec_file.write_text(
         f"campaign {backend}-script-test\n"
