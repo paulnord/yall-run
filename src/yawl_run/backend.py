@@ -92,6 +92,10 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         )
         node_script.chmod(0o755)
 
+        request_cpus = task.resources.cpus or spec.condor.request_cpus
+        request_memory = task.resources.memory or spec.condor.request_memory
+        request_disk = task.resources.disk or spec.condor.request_disk
+
         submit = condor_dir / f"{node}.sub"
         submit.write_text(
             "universe = vanilla\n"
@@ -99,9 +103,9 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             f"output = {logs_dir / (node + '.out')}\n"
             f"error = {logs_dir / (node + '.err')}\n"
             f"log = {condor_dir / 'events.log'}\n"
-            f"request_cpus = {spec.condor.request_cpus}\n"
-            f"request_memory = {spec.condor.request_memory}\n"
-            f"request_disk = {spec.condor.request_disk}\n"
+            f"request_cpus = {request_cpus}\n"
+            f"request_memory = {request_memory}\n"
+            f"request_disk = {request_disk}\n"
             f"getenv = {'True' if spec.condor.getenv else 'False'}\n"
             "should_transfer_files = NO\n"
             "queue 1\n"
