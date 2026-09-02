@@ -1,8 +1,6 @@
 # Yawlfile syntax
 
-`Yawlfile` is the human-facing campaign format for yawl-run. The goal is to keep ordinary workflows readable without giving up the precise internal campaign model.
-
-TOML remains supported as a generated/interchange format.
+`Yawlfile` is the campaign format for yawl-run. The goal is to keep ordinary workflows readable without giving up the precise internal campaign model.
 
 ## Smallest useful file
 
@@ -173,6 +171,8 @@ summary: pedestal-{run}
 
 The resulting `summary` task depends on every expanded pedestal task, and its `@input.pedestal` collection contains the corresponding files.
 
-## TOML compatibility
+`examples/pi/Yawlfile` is a complete map-reduce example. Eight `partial-{chunk}` tasks run the same Python worker against different range files, then one `sum` task fans in all eight outputs.
 
-Files ending in `.toml` continue to use the original precise TOML format. Existing TOML campaigns therefore keep working. Yawlfile syntax is intended for people; TOML remains useful for generators and interchange.
+## One language
+
+Yawlfile syntax is the campaign language. TOML campaign files from the prototype era are intentionally not supported. Keeping one syntax avoids duplicate semantics, duplicate documentation, and two parser paths that can drift apart.
