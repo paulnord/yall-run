@@ -6,8 +6,8 @@ import shlex
 import shutil
 import sys
 
-from .backend import condor_queue_status, render_condor, submit_rendered
 from .campaign import campaign_manifest, campaign_status, create_campaign, start_local
+from .condor_backend import condor_queue_status, render_condor, submit_rendered
 from .model import load_spec
 from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
 from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
