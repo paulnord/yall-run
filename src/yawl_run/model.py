@@ -22,6 +22,13 @@ class FileRef:
 
 
 @dataclass(frozen=True)
+class ResourceSpec:
+    cpus: int | None = None
+    memory: str | None = None
+    disk: str | None = None
+
+
+@dataclass(frozen=True)
 class CondorSpec:
     request_cpus: int = 1
     request_memory: str = "2GB"
@@ -39,6 +46,7 @@ class TaskSpec:
     retries: int = 0
     inputs: Tuple[FileRef, ...] = ()
     outputs: Tuple[FileRef, ...] = ()
+    resources: ResourceSpec = ResourceSpec()
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,12 @@ class CampaignSpec:
 
 def _validate_graph(tasks: list[TaskSpec]) -> None:
     by_name = {task.name: task for task in tasks}
+    if len(by_name) != len(tasks):
+        seen: set[str] = set()
+        for task in tasks:
+            if task.name in seen:
+                raise ValueError(f"duplicate task name: {task.name}")
+            seen.add(task.name)
     for task in tasks:
         unknown = [parent for parent in task.parents if parent not in by_name]
         if unknown:
@@ -116,8 +130,16 @@ def _parse_refs(value: object, task_name: str, field: str) -> Tuple[FileRef, ...
     return tuple(refs)
 
 
-def load_spec(path: str | Path) -> CampaignSpec:
-    source = logical_absolute(path)
+def _optional_positive_int(value: object, task_name: str, field: str) -> int | None:
+    if value is None:
+        return None
+    result = int(value)
+    if result < 1:
+        raise ValueError(f"task {task_name!r} {field} must be positive")
+    return result
+
+
+def _load_toml_spec(source: Path) -> CampaignSpec:
     with source.open("rb") as fh:
         data = tomllib.load(fh)
 
@@ -162,6 +184,11 @@ def load_spec(path: str | Path) -> CampaignSpec:
         parents = tuple(str(value) for value in item.get("parents", []))
         inputs = _parse_refs(item.get("inputs"), task_name, "inputs")
         outputs = _parse_refs(item.get("outputs"), task_name, "outputs")
+        resources = ResourceSpec(
+            cpus=_optional_positive_int(item.get("cpus"), task_name, "cpus"),
+            memory=str(item["memory"]) if item.get("memory") is not None else None,
+            disk=str(item["disk"]) if item.get("disk") is not None else None,
+        )
         seen.add(task_name)
         cwd = item.get("cwd")
         tasks.append(
@@ -173,6 +200,7 @@ def load_spec(path: str | Path) -> CampaignSpec:
                 retries=retries,
                 inputs=inputs,
                 outputs=outputs,
+                resources=resources,
             )
         )
 
@@ -184,3 +212,12 @@ def load_spec(path: str | Path) -> CampaignSpec:
         backend=backend,
         condor=condor,
     )
+
+
+def load_spec(path: str | Path) -> CampaignSpec:
+    source = logical_absolute(path)
+    if source.suffix.lower() == ".toml":
+        return _load_toml_spec(source)
+    from .syntax import load_yawl_spec
+
+    return load_yawl_spec(source)
