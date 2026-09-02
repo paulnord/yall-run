@@ -1,0 +1,11 @@
+campaign hello-yawl
+backend local
+
+left:
+    echo left says hello
+
+right:
+    echo right says hello
+
+finish: left right
+    echo both parents finished
