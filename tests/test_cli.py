@@ -26,6 +26,10 @@ def test_cli_create_then_start_one_campaign(tmp_path, monkeypatch, capsys):
     assert "jobs=2" in output
     assert "[start] hello" in output
     assert "[done ] hello" in output
+    assert str(campaign_dir) not in output
+    assert output.rstrip().endswith(
+        "[local] finished completed=1 failed=0 blocked=0"
+    )
     assert campaign_status(campaign_dir)["counts"] == {"completed": 1}
 
     assert main(["start", str(campaign_dir)]) == 2
@@ -49,6 +53,10 @@ def test_cli_start_reads_one_campaign_path_from_stdin(tmp_path, monkeypatch, cap
     output = capsys.readouterr().out
     assert "[start] hello" in output
     assert "[done ] hello" in output
+    assert str(campaign_dir) not in output
+    assert output.rstrip().endswith(
+        "[local] finished completed=1 failed=0 blocked=0"
+    )
     assert campaign_status(campaign_dir)["counts"] == {"completed": 1}
 
 
