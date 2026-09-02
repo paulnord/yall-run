@@ -31,7 +31,7 @@ python3 -m pip install -e .
 
 ## A small Yawlfile
 
-The human-facing format is intentionally Make-like:
+The campaign format is intentionally Make-like:
 
 ```text
 campaign hello-yawl
@@ -55,11 +55,7 @@ yawl-run plan
 yawl-run start --root ./campaigns
 ```
 
-You can still pass an explicit file, including the original TOML format:
-
-```bash
-yawl-run plan examples/hello.toml
-```
+There is one campaign language: Yawlfile syntax. Old TOML campaign files are not supported.
 
 ## Data is `@`, execution policy is `%`
 
@@ -77,7 +73,7 @@ convert:
     ./Convert -i @input.raw -o @output.root
 ```
 
-`@input.raw` and `@output.root` are expanded into argv elements. A role can contain several paths, in which case the reference expands to several argv elements.
+`@input.raw` and `@output.root` expand into argv elements. A role can contain several paths, in which case the reference expands to several argv elements.
 
 `@` is for data and named values. `%` is for execution policy. Resource requests are generic yawl-run concepts; the Condor backend translates them into scheduler directives.
 
@@ -118,17 +114,35 @@ pedestal-138
 pedestal-142
 ```
 
-A patterned child naturally follows the same family:
-
-```text
-check-{run}: pedestal-{run}
-    @input pedestal pedestal/beam2026_pedestal_{run}.root
-    ./check @input.pedestal
-```
-
-A plain task depending on `pedestal-{run}` fans in from the whole family.
+A patterned child naturally follows the same family. A plain task depending on a patterned parent fans in from the whole family.
 
 See [docs/YAWLFILE.md](docs/YAWLFILE.md) for the format details.
+
+## Map, then reduce: the pi example
+
+`examples/pi` is a complete Condor-ready example of reusable code and fan-out/fan-in dependencies. It evaluates the Leibniz series
+
+```text
+pi = 4 * (1 - 1/3 + 1/5 - 1/7 + ...)
+```
+
+in eight independent chunks. Every worker runs the same `partial_pi.py` program. The final `sum` task waits for the whole `partial-{chunk}` family and receives all partial result files through one named input.
+
+```bash
+cd examples/pi
+yawl-run validate
+yawl-run plan
+yawl-run start --dry-run
+```
+
+The last command renders the Condor DAG without submitting it. Submit the exact rendered campaign with `yawl-run submit CAMPAIGN_DIR`.
+
+For a local end-to-end smoke test:
+
+```bash
+yawl-run start --backend local
+cat pi-work/pi.txt
+```
 
 ## Task commands and provenance
 
@@ -138,26 +152,12 @@ For every attempt, yawl-run records the resolved input paths and their existence
 tasks/<name>/attempts/NNN/attempt.json
 ```
 
-The precise TOML format remains supported and is useful for generated campaigns and interchange. An argv-style TOML task still looks like:
-
-```toml
-[[task]]
-name = "convert"
-command = ["./Convert", "-i", "Run300.h2g", "-o", "rawHGCROC_300.root"]
-inputs = [
-  {role = "raw_h2g", path = "Run300.h2g"},
-]
-outputs = [
-  {role = "raw_root", path = "rawHGCROC_300.root"},
-]
-```
-
 ## Condor / DAGMan
 
 First render everything without submitting:
 
 ```bash
-yawl-run start examples/condor-dag.toml --root ./campaigns --dry-run
+yawl-run start --backend condor --root ./campaigns --dry-run
 ```
 
 The generated campaign contains the DAG, per-node submit files, a bundled worker, scheduler logs, and the durable yawl-run task records.
@@ -170,13 +170,7 @@ yawl-run submit ./campaigns/<campaign-id>
 
 A rendered campaign can be submitted only once. This keeps the reviewed DAG and the submitted DAG identical.
 
-You can also submit directly without a review step:
-
-```bash
-yawl-run start examples/condor-dag.toml --root ./campaigns
-```
-
-DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable campaign record rather than living only in scheduler history.
+DAGMan retries invoke the yawl worker again, so a Condor retry becomes attempt `002`, `003`, etc. in the durable yawl campaign record rather than living only in scheduler history.
 
 Check state with:
 
@@ -188,7 +182,7 @@ For active Condor campaigns, status reports the DAGMan controller separately fro
 
 ## Condor execution wrapper
 
-A site or container wrapper can be configured without teaching yawl-run anything detector-specific. In a Yawlfile:
+A site or container wrapper can be configured without teaching yawl-run anything detector-specific:
 
 ```text
 backend condor
@@ -206,4 +200,4 @@ If a feature can be described without mentioning LFHCal, HGCROC, a particular ru
 
 ## Status
 
-0.4 development branch: a human-readable Yawlfile format on top of the existing campaign model, with the TOML format retained for compatibility and generated workflows.
+0.5: one human-readable campaign format, local and Condor/DAGMan backends, pattern-task fan-out/fan-in, named data references, resource policy, and durable attempt provenance.
