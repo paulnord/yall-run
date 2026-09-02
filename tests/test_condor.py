@@ -5,22 +5,17 @@ from yawl_run.model import load_spec
 
 
 def test_condor_dag_render(tmp_path):
-    spec_file = tmp_path / "campaign.toml"
+    spec_file = tmp_path / "Yawlfile"
     spec_file.write_text(
-        "[campaign]\n"
-        "name = \"dag-test\"\n"
-        "backend = \"condor\"\n\n"
-        "[[task]]\n"
-        "name = \"left\"\n"
-        "command = \"echo left\"\n"
-        "retries = 2\n\n"
-        "[[task]]\n"
-        "name = \"right\"\n"
-        "command = \"echo right\"\n\n"
-        "[[task]]\n"
-        "name = \"finish\"\n"
-        "command = \"echo finish\"\n"
-        "parents = [\"left\", \"right\"]\n"
+        "campaign dag-test\n"
+        "backend condor\n\n"
+        "left:\n"
+        "    %retry 2\n"
+        "    echo left\n\n"
+        "right:\n"
+        "    echo right\n\n"
+        "finish: left right\n"
+        "    echo finish\n"
     )
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
@@ -57,16 +52,13 @@ def test_condor_wrapper_is_archived(tmp_path):
     wrapper = tmp_path / "container-wrapper.sh"
     wrapper.write_text("#!/bin/bash\nexec \"$@\"\n")
     wrapper.chmod(0o755)
-    spec_file = tmp_path / "wrapped.toml"
+    spec_file = tmp_path / "Yawlfile"
     spec_file.write_text(
-        "[campaign]\n"
-        "name = \"wrapped\"\n"
-        "backend = \"condor\"\n\n"
-        "[condor]\n"
-        "wrapper = \"container-wrapper.sh\"\n\n"
-        "[[task]]\n"
-        "name = \"hello\"\n"
-        "command = [\"echo\", \"hello\"]\n"
+        "campaign wrapped\n"
+        "backend condor\n"
+        "%wrapper container-wrapper.sh\n\n"
+        "hello:\n"
+        "    echo hello\n"
     )
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
