@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yawl-run"
-version = "0.5.1"
+version = "0.6.0"
 description = "Yet Another Workflow Layer: lightweight campaign execution and provenance"
 readme = "README.md"
 requires-python = ">=3.9"
