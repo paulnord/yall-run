@@ -38,25 +38,34 @@ def _inspect_file(ref: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _task_path(campaign_dir: Path, task_name: str) -> Path:
+    return campaign_dir / "tasks" / f"{task_name}.json"
+
+
+def _next_attempt_number(campaign_dir: Path, task_name: str) -> int:
+    prefix = f"{task_name}_attempt_"
+    numbers: list[int] = []
+    for path in campaign_dir.iterdir():
+        if not path.is_dir() or not path.name.startswith(prefix):
+            continue
+        suffix = path.name[len(prefix):]
+        if suffix.isdigit():
+            numbers.append(int(suffix))
+    return max(numbers, default=0) + 1
+
+
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
     campaign_dir = Path(campaign_dir).expanduser()
     if not campaign_dir.is_absolute():
         campaign_dir = Path.cwd() / campaign_dir
-    task_dir = campaign_dir / "tasks" / task_name
-    task_path = task_dir / "task.json"
+    task_path = _task_path(campaign_dir, task_name)
     if not task_path.exists():
         raise ValueError(f"unknown task: {task_name}")
 
     task = _read_json(task_path)
-    attempts_dir = task_dir / "attempts"
-    existing = [
-        int(path.name)
-        for path in attempts_dir.iterdir()
-        if path.is_dir() and path.name.isdigit()
-    ]
-    number = max(existing, default=0) + 1
-    attempt_dir = attempts_dir / f"{number:03d}"
-    attempt_dir.mkdir(parents=True, exist_ok=False)
+    number = _next_attempt_number(campaign_dir, task_name)
+    attempt_dir = campaign_dir / f"{task_name}_attempt_{number:03d}"
+    attempt_dir.mkdir(parents=False, exist_ok=False)
     stdout_path = attempt_dir / "stdout.log"
     stderr_path = attempt_dir / "stderr.log"
 
@@ -64,6 +73,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     _write_json(attempt_dir / "attempt.json", {
+        "task": task_name,
         "attempt": number,
         "state": "running",
         "started_at": started,
@@ -90,6 +100,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     finished = _utc_now()
     outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
     _write_json(attempt_dir / "attempt.json", {
+        "task": task_name,
         "attempt": number,
         "state": state,
         "started_at": started,
