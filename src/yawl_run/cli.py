@@ -6,9 +6,10 @@ import shlex
 import shutil
 import sys
 
-from .backend import condor_queue_status, submit_condor, submit_rendered
-from .campaign import campaign_status, run_task, start_local
+from .backend import condor_queue_status, render_condor, submit_rendered
+from .campaign import campaign_manifest, campaign_status, create_campaign, start_local
 from .model import load_spec
+from .worker import run_task
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -18,30 +19,31 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    validate = sub.add_parser("validate", help="validate a campaign specification")
+    validate = sub.add_parser("validate", help="validate a Yawlfile")
     validate.add_argument("spec", nargs="?", default="Yawlfile")
 
-    plan = sub.add_parser("plan", help="show tasks without running them")
+    plan = sub.add_parser("plan", help="show tasks described by a Yawlfile")
     plan.add_argument("spec", nargs="?", default="Yawlfile")
 
-    start = sub.add_parser("start", help="create and run or render a campaign")
-    start.add_argument("spec", nargs="?", default="Yawlfile")
-    start.add_argument("--root", default="./campaigns")
-    start.add_argument("--backend", choices=("local", "condor"))
-    start.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="for Condor, render campaign/DAG files without submitting",
-    )
+    create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
+    create.add_argument("spec", nargs="?", default="Yawlfile")
+    create.add_argument("--root", default="./campaigns")
+    create.add_argument("--backend", choices=("local", "condor"))
 
-    submit = sub.add_parser("submit", help="submit an already-rendered Condor campaign")
-    submit.add_argument("campaign_dir")
+    start = sub.add_parser("start", help="start one existing campaign")
+    start.add_argument("campaign_dir")
+    start.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        help="maximum number of yawl tasks active at once",
+    )
 
     status = sub.add_parser("status", help="show campaign status")
     status.add_argument("campaign_dir")
     status.add_argument("--json", action="store_true")
 
-    retry = sub.add_parser("retry", help="run another local attempt of one task")
+    retry = sub.add_parser("retry", help="run another attempt of one task")
     retry.add_argument("campaign_dir")
     retry.add_argument("task")
 
@@ -85,24 +87,29 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {task.name}: {_display_command(task.command)}{suffix}")
             return 0
 
-        if args.command == "start":
+        if args.command == "create":
             spec = load_spec(args.spec)
             backend = args.backend or spec.backend
-            if backend == "local":
-                if args.dry_run:
-                    raise ValueError("--dry-run currently applies only to the Condor backend")
-                cdir = start_local(spec, args.root)
+            if backend == "condor":
+                cdir = render_condor(spec, args.root)
             else:
-                if not args.dry_run and shutil.which("condor_submit_dag") is None:
-                    raise ValueError("condor_submit_dag not found in PATH")
-                cdir = submit_condor(spec, args.root, submit=not args.dry_run)
+                cdir = create_campaign(spec, args.root, backend="local")
             print(cdir)
             return 0
 
-        if args.command == "submit":
-            if shutil.which("condor_submit_dag") is None:
-                raise ValueError("condor_submit_dag not found in PATH")
-            cdir = submit_rendered(args.campaign_dir)
+        if args.command == "start":
+            if args.jobs is not None and args.jobs < 1:
+                raise ValueError("-j/--jobs must be positive")
+            cdir, manifest = campaign_manifest(args.campaign_dir)
+            backend = manifest.get("backend", "local")
+            if backend == "local":
+                cdir = start_local(cdir, jobs=args.jobs or 1)
+            elif backend == "condor":
+                if shutil.which("condor_submit_dag") is None:
+                    raise ValueError("condor_submit_dag not found in PATH")
+                cdir = submit_rendered(cdir, max_jobs=args.jobs)
+            else:
+                raise ValueError(f"unknown campaign backend: {backend}")
             print(cdir)
             return 0
 
