@@ -44,12 +44,15 @@ def test_generated_batch_script_executes_bundled_worker(
     )
     assert proc.returncode == 0, proc.stderr
 
-    task = json.loads((campaign_dir / "tasks" / "hello.json").read_text())
+    state = json.loads((campaign_dir / "state" / "hello.json").read_text())
     attempt = json.loads(
         (campaign_dir / "hello_attempt_001" / "attempt.json").read_text()
     )
-    assert task["state"] == "completed"
-    assert task["attempts"] == 1
+    assert state == {
+        "attempts": 1,
+        "last_returncode": 0,
+        "state": "completed",
+    }
     assert attempt["state"] == "completed"
     assert attempt["timing"]["real_seconds"] >= 0
     assert (tmp_path / "result.txt").read_text() == "hello"
