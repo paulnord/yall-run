@@ -1,4 +1,6 @@
+import io
 from pathlib import Path
+import sys
 
 from yawl_run.cli import main
 from yawl_run.campaign import campaign_status
@@ -28,6 +30,32 @@ def test_cli_create_then_start_one_campaign(tmp_path, monkeypatch, capsys):
 
     assert main(["start", str(campaign_dir)]) == 2
     assert "already been started" in capsys.readouterr().err
+
+
+def test_cli_start_reads_one_campaign_path_from_stdin(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Yawlfile").write_text(
+        "campaign piped-start\n"
+        "backend local\n\n"
+        "hello:\n"
+        "    echo hello\n"
+    )
+
+    assert main(["create", "--campaigns-dir", "campaigns"]) == 0
+    campaign_dir = Path(capsys.readouterr().out.strip())
+    monkeypatch.setattr(sys, "stdin", io.StringIO(str(campaign_dir) + "\n"))
+
+    assert main(["start"]) == 0
+    output = capsys.readouterr().out
+    assert "[start] hello" in output
+    assert "[done ] hello" in output
+    assert campaign_status(campaign_dir)["counts"] == {"completed": 1}
+
+
+def test_cli_start_rejects_multiple_stdin_paths(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("campaign-one\ncampaign-two\n"))
+    assert main(["start"]) == 2
+    assert "exactly one campaign path" in capsys.readouterr().err
 
 
 def test_cli_rejects_j_for_condor_create(tmp_path, monkeypatch, capsys):
