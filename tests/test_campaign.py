@@ -7,22 +7,33 @@ from yawl_run.campaign import campaign_status, create_campaign, start_local
 from yawl_run.model import load_spec
 
 
-def test_create_then_start_local_campaign(tmp_path):
+def test_create_then_start_local_campaign(tmp_path, capsys):
     root = Path(__file__).resolve().parents[1]
     spec = load_spec(root / "examples" / "hello.yawl")
     campaign_dir = create_campaign(spec, tmp_path, backend="local")
 
     assert not list(campaign_dir.glob("*_attempt_*"))
     assert campaign_status(campaign_dir)["counts"] == {"pending": 3}
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["execution"] == {"local": {"jobs": 1}}
 
     start_local(campaign_dir)
+    output = capsys.readouterr().out
+    assert "[local] host=" in output
+    assert "jobs=1" in output
+    assert "cpus_available=" in output
+    assert "[start] left" in output
+    assert "[done ] finish" in output
+    assert "[local] finished completed=3 failed=0 blocked=0" in output
+
     status = campaign_status(campaign_dir)
     assert status["counts"] == {"completed": 3}
     assert all(t["attempts"] == 1 for t in status["tasks"])
-    assert json.loads((campaign_dir / "start.json").read_text())["max_jobs"] == 1
+    start_record = json.loads((campaign_dir / "start.json").read_text())
+    assert start_record["execution"] == {"local": {"jobs": 1}}
 
 
-def test_local_j_runs_independent_tasks_concurrently(tmp_path, monkeypatch):
+def test_local_j_is_frozen_at_create_and_runs_tasks_concurrently(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     barrier = tmp_path / "barrier.py"
     barrier.write_text(
@@ -50,11 +61,12 @@ def test_local_j_runs_independent_tasks_concurrently(tmp_path, monkeypatch):
         "    echo done\n"
     )
     spec = load_spec(spec_file)
-    campaign_dir = create_campaign(spec, tmp_path / "campaigns")
-    start_local(campaign_dir, jobs=2)
+    campaign_dir = create_campaign(spec, tmp_path / "campaigns", local_jobs=2)
+    start_local(campaign_dir)
 
     assert campaign_status(campaign_dir)["counts"] == {"completed": 3}
-    assert json.loads((campaign_dir / "start.json").read_text())["max_jobs"] == 2
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["execution"] == {"local": {"jobs": 2}}
 
 
 def test_argv_command_file_and_launch_provenance(tmp_path):
