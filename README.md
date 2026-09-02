@@ -1,5 +1,7 @@
-# yawl-run
-
+<p align="center">
+  # yawl-run
+  <img src="docs/images/yawl-run-logo.png" alt="YAWL-run logo" width="400">
+</p>
 **Yet Another Workflow Layer**  
 **Y'all run!**
 
