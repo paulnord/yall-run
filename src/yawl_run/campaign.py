@@ -35,19 +35,20 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def _task_dir(campaign_dir: Path, task_name: str) -> Path:
-    return campaign_dir / "tasks" / task_name
+def _task_path(campaign_dir: Path, task_name: str) -> Path:
+    return campaign_dir / "tasks" / f"{task_name}.json"
 
 
 def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = None) -> Path:
     root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
+    (campaign_dir / "tasks").mkdir()
     selected_backend = backend or spec.backend
     launch_cwd = logical_cwd()
 
     manifest = {
-        "schema": 3,
+        "schema": 4,
         "id": campaign_dir.name,
         "name": spec.name,
         "backend": selected_backend,
@@ -66,8 +67,6 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     })
 
     for task in spec.tasks:
-        task_dir = _task_dir(campaign_dir, task.name)
-        (task_dir / "attempts").mkdir(parents=True)
         task_cwd = logical_absolute(task.cwd, launch_cwd) if task.cwd else launch_cwd
         record = asdict(task)
         record["parents"] = list(task.parents)
@@ -84,7 +83,7 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
         ]
         record["state"] = "pending"
         record["attempts"] = 0
-        _write_json(task_dir / "task.json", record)
+        _write_json(_task_path(campaign_dir, task.name), record)
 
     return campaign_dir
 
@@ -99,13 +98,14 @@ def start_local(spec: CampaignSpec, root: str | Path) -> Path:
         for name in list(remaining):
             task = by_name[name]
             parent_states = {
-                parent: _read_json(_task_dir(campaign_dir, parent) / "task.json")["state"]
+                parent: _read_json(_task_path(campaign_dir, parent))["state"]
                 for parent in task.parents
             }
             if any(state in {"failed", "blocked"} for state in parent_states.values()):
-                record = _read_json(_task_dir(campaign_dir, name) / "task.json")
+                path = _task_path(campaign_dir, name)
+                record = _read_json(path)
                 record["state"] = "blocked"
-                _write_json(_task_dir(campaign_dir, name) / "task.json", record)
+                _write_json(path, record)
                 remaining.remove(name)
                 progressed = True
                 continue
@@ -131,7 +131,7 @@ def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:
     tasks = []
     counts: dict[str, int] = {}
     for name in manifest["tasks"]:
-        task = _read_json(_task_dir(campaign_dir, name) / "task.json")
+        task = _read_json(_task_path(campaign_dir, name))
         tasks.append({
             "name": name,
             "state": task["state"],
