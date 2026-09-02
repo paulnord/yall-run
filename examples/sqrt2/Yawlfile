@@ -1,0 +1,77 @@
+campaign sqrt2-continued-fraction
+backend local
+
+# A deliberately deep dependency chain.  Each task computes the next exact
+# rational convergent of sqrt(2) from the preceding one.
+prepare:
+    @output work sqrt2-work
+    mkdir -p @output.work
+
+seed: prepare
+    @output value sqrt2-work/step-00.txt
+    python3 sqrt2_step.py seed @output.value
+
+step-01: seed
+    @input previous sqrt2-work/step-00.txt
+    @output value sqrt2-work/step-01.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-02: step-01
+    @input previous sqrt2-work/step-01.txt
+    @output value sqrt2-work/step-02.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-03: step-02
+    @input previous sqrt2-work/step-02.txt
+    @output value sqrt2-work/step-03.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-04: step-03
+    @input previous sqrt2-work/step-03.txt
+    @output value sqrt2-work/step-04.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-05: step-04
+    @input previous sqrt2-work/step-04.txt
+    @output value sqrt2-work/step-05.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-06: step-05
+    @input previous sqrt2-work/step-05.txt
+    @output value sqrt2-work/step-06.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-07: step-06
+    @input previous sqrt2-work/step-06.txt
+    @output value sqrt2-work/step-07.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-08: step-07
+    @input previous sqrt2-work/step-07.txt
+    @output value sqrt2-work/step-08.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-09: step-08
+    @input previous sqrt2-work/step-08.txt
+    @output value sqrt2-work/step-09.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-10: step-09
+    @input previous sqrt2-work/step-09.txt
+    @output value sqrt2-work/step-10.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-11: step-10
+    @input previous sqrt2-work/step-10.txt
+    @output value sqrt2-work/step-11.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+step-12: step-11
+    @input previous sqrt2-work/step-11.txt
+    @output value sqrt2-work/step-12.txt
+    python3 sqrt2_step.py next @input.previous @output.value
+
+check: step-12
+    @input value sqrt2-work/step-12.txt
+    @output result sqrt2-work/sqrt2.txt
+    python3 check_sqrt2.py @input.value @output.result
