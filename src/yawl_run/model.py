@@ -6,11 +6,6 @@ from typing import Tuple, Union
 
 from .paths import logical_absolute
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.9 and 3.10
-    import tomli as tomllib
-
 
 Command = Union[str, Tuple[str, ...]]
 
@@ -91,133 +86,13 @@ def _validate_graph(tasks: list[TaskSpec]) -> None:
         visit(name)
 
 
-def _parse_command(value: object, task_name: str) -> Command:
-    if isinstance(value, str):
-        command = value.strip()
-        if not command:
-            raise ValueError(f"task {task_name!r} needs a command")
-        return command
-    if isinstance(value, list):
-        command = tuple(str(item) for item in value)
-        if not command or not command[0]:
-            raise ValueError(f"task {task_name!r} needs a command")
-        return command
-    raise ValueError(f"task {task_name!r} command must be a string or array")
-
-
-def _parse_refs(value: object, task_name: str, field: str) -> Tuple[FileRef, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list):
-        raise ValueError(f"task {task_name!r} {field} must be an array")
-    refs: list[FileRef] = []
-    for item in value:
-        if isinstance(item, str):
-            if not item:
-                raise ValueError(f"task {task_name!r} has an empty {field} path")
-            refs.append(FileRef(path=item))
-            continue
-        if not isinstance(item, dict):
-            raise ValueError(
-                f"task {task_name!r} {field} entries must be paths or tables"
-            )
-        path = str(item.get("path", "")).strip()
-        if not path:
-            raise ValueError(f"task {task_name!r} has a {field} entry without path")
-        role_value = item.get("role")
-        role = str(role_value).strip() if role_value is not None else None
-        refs.append(FileRef(path=path, role=role or None))
-    return tuple(refs)
-
-
-def _optional_positive_int(value: object, task_name: str, field: str) -> int | None:
-    if value is None:
-        return None
-    result = int(value)
-    if result < 1:
-        raise ValueError(f"task {task_name!r} {field} must be positive")
-    return result
-
-
-def _load_toml_spec(source: Path) -> CampaignSpec:
-    with source.open("rb") as fh:
-        data = tomllib.load(fh)
-
-    campaign = data.get("campaign", {})
-    name = str(campaign.get("name", "")).strip()
-    if not name:
-        raise ValueError("[campaign].name is required")
-
-    backend = str(campaign.get("backend", "local")).strip().lower()
-    if backend not in {"local", "condor"}:
-        raise ValueError("[campaign].backend must be 'local' or 'condor'")
-
-    raw_condor = data.get("condor", {})
-    request_cpus = int(raw_condor.get("request_cpus", 1))
-    if request_cpus < 1:
-        raise ValueError("[condor].request_cpus must be positive")
-    wrapper_value = raw_condor.get("wrapper")
-    condor = CondorSpec(
-        request_cpus=request_cpus,
-        request_memory=str(raw_condor.get("request_memory", "2GB")),
-        request_disk=str(raw_condor.get("request_disk", "2GB")),
-        getenv=bool(raw_condor.get("getenv", True)),
-        wrapper=str(wrapper_value) if wrapper_value else None,
-    )
-
-    raw_tasks = data.get("task", [])
-    if not raw_tasks:
-        raise ValueError("at least one [[task]] is required")
-
-    seen: set[str] = set()
-    tasks: list[TaskSpec] = []
-    for item in raw_tasks:
-        task_name = str(item.get("name", "")).strip()
-        if not task_name:
-            raise ValueError("each [[task]] needs a name")
-        if task_name in seen:
-            raise ValueError(f"duplicate task name: {task_name}")
-        command = _parse_command(item.get("command"), task_name)
-        retries = int(item.get("retries", 0))
-        if retries < 0:
-            raise ValueError(f"task {task_name!r} retries may not be negative")
-        parents = tuple(str(value) for value in item.get("parents", []))
-        inputs = _parse_refs(item.get("inputs"), task_name, "inputs")
-        outputs = _parse_refs(item.get("outputs"), task_name, "outputs")
-        resources = ResourceSpec(
-            cpus=_optional_positive_int(item.get("cpus"), task_name, "cpus"),
-            memory=str(item["memory"]) if item.get("memory") is not None else None,
-            disk=str(item["disk"]) if item.get("disk") is not None else None,
-        )
-        seen.add(task_name)
-        cwd = item.get("cwd")
-        tasks.append(
-            TaskSpec(
-                name=task_name,
-                command=command,
-                cwd=str(cwd) if cwd else None,
-                parents=parents,
-                retries=retries,
-                inputs=inputs,
-                outputs=outputs,
-                resources=resources,
-            )
-        )
-
-    _validate_graph(tasks)
-    return CampaignSpec(
-        name=name,
-        tasks=tuple(tasks),
-        source=source,
-        backend=backend,
-        condor=condor,
-    )
-
-
 def load_spec(path: str | Path) -> CampaignSpec:
     source = logical_absolute(path)
     if source.suffix.lower() == ".toml":
-        return _load_toml_spec(source)
+        raise ValueError(
+            "TOML campaign files are no longer supported; use Yawlfile syntax"
+        )
+
     from .syntax import load_yawl_spec
 
     return load_yawl_spec(source)
