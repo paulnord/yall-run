@@ -48,13 +48,20 @@ Launch the exact campaign printed by `create` with:
 yawl-run start campaigns/<campaign-id>
 ```
 
+Because `create` writes only that campaign path to standard output, it can be piped directly into `start`:
+
+```bash
+yawl-run create | yawl-run start
+```
+
+When the `CAMPAIGN_DIR` argument is omitted, `start` reads exactly one nonblank campaign path from standard input. An explicit argument always takes precedence.
+
 A campaign can be started only once. To run the recipe again, create another campaign from the Yawlfile.
 
 For a local campaign, use `-j N` on `create` to freeze the maximum number of concurrently active yawl tasks:
 
 ```bash
-yawl-run create --backend local -j 4
-yawl-run start campaigns/<campaign-id>
+yawl-run create --backend local -j 4 | yawl-run start
 ```
 
 Local campaigns default to one task at a time. `-j` is intentionally invalid for queued backends. Processor requests belong to `%cpus` task policy instead.
