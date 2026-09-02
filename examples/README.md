@@ -1,6 +1,6 @@
 # yawl-run examples
 
-These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second.
+These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler example adds a more realistic combinatorial search.
 
 | Example | Calculation | Workflow shape | Numerical character |
 | --- | --- | --- | --- |
@@ -9,6 +9,7 @@ These examples are small enough to inspect by hand but are chosen to exercise di
 | [`sqrt2`](sqrt2/) | continued fraction for $\sqrt{2}$ | deep serial dependency chain | rapid convergence, exact rational convergents |
 | [`sqrt2-binomial`](sqrt2-binomial/) | binomial series for $\sqrt{2}$ | parallel chunks, fan-in, numerical check | converges at the boundary of the binomial series |
 | [`e`](e/) | $\sum 1/n!$ | parallel leaves and hierarchical reduction | very rapid convergence |
+| [`golomb`](golomb/) | optimal 11-mark Golomb ruler | parallel branch-and-bound with shared incumbent | CPU-bound search with uneven branches and cooperative pruning |
 
 ## pi: useful workflow, poor algorithm
 
@@ -54,4 +55,10 @@ $$
 
 converges extremely rapidly because $n!$ grows so quickly. Its terms can be split into independent partial sums and combined in any grouping, making it a clean example of hierarchical reduction. For the tiny term counts used here, launching workflow tasks costs vastly more than doing the arithmetic; the graph structure is the lesson.
 
-Each numerical example has its own README with the derivation, run instructions, and more detail about why that particular calculation is useful for testing yawl-run.
+## Golomb ruler: cooperative branch-and-bound
+
+The [`golomb`](golomb/) example searches for an optimal 11-mark ruler with all pairwise distances distinct. Eight CPU-bound search shards explore disjoint parts of the tree while sharing a monotonically decreasing incumbent. A good solution found by one worker can therefore prune work in the others even though the search tasks have no yawl dependency edges between them.
+
+The final reduction is intentionally stronger than merely selecting the shortest ruler found: it verifies that every shard exhausted the portion of its search space required to rule out anything shorter. This makes the example useful for distinguishing a successful empty branch from a failed task and for testing uneven, interacting parallel workloads.
+
+Each example has its own README with run instructions and more detail about why that calculation or search is useful for testing yawl-run.
