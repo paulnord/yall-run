@@ -22,6 +22,8 @@ finish: left right
 
 A task header is `task-name:` followed by zero or more parent task names. Indented lines belong to that task.
 
+Backends are `local`, `condor`, `slurm`, and `pbs`. Slurm and PBS support is experimental.
+
 If the file is named `Yawlfile`, the specification argument is optional:
 
 ```bash
@@ -45,7 +47,7 @@ yawl-run create --backend local -j 4
 yawl-run start campaigns/<campaign-id>
 ```
 
-Local campaigns default to one task at a time. `-j` is intentionally invalid for Condor campaigns. Condor processor requests belong to `%cpus` task policy instead.
+Local campaigns default to one task at a time. `-j` is intentionally invalid for queued backends. Processor requests belong to `%cpus` task policy instead.
 
 ## Data declarations: `@`
 
@@ -99,7 +101,7 @@ heavy-analysis:
     ./Analyze input.root
 ```
 
-Task-level resource values override campaign defaults. The values are generic yawl-run policy; the Condor backend translates them to `request_cpus`, `request_memory`, and `request_disk`.
+Task-level resource values override campaign defaults. Condor maps CPU, memory, and disk requests directly. Slurm maps CPU and memory requests. PBS maps CPU and memory requests. Disk requests remain in provenance for Slurm and PBS because scratch resources are site-specific.
 
 Campaign-level defaults can appear outside a task:
 
@@ -114,12 +116,12 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 
 `%cwd` is task-local.
 
-The backend is frozen into the campaign at `create` time. `yawl-run create --backend local` or `--backend condor` can deliberately override the Yawlfile for a particular campaign, which is useful for local smoke tests of a Condor-oriented recipe.
+The backend is frozen into the campaign at `create` time. `yawl-run create --backend local`, `--backend condor`, `--backend slurm`, or `--backend pbs` can deliberately override the Yawlfile for a particular campaign.
 
 `-j` and `%cpus` are deliberately different:
 
 - `-j N` is local campaign concurrency: at most `N` dependency-ready tasks are active at once.
-- `%cpus N` is a per-task resource request. Condor maps it to `request_cpus = N`.
+- `%cpus N` is a per-task resource request for queued execution.
 - local yawl currently records `%cpus` but does not use it as a local scheduling weight.
 
 ## Shell escape hatch
@@ -224,7 +226,7 @@ YAWL_PROVENANCE
 
 `YAWL_PROVENANCE` points to that JSON file. Analysis-specific software may copy or embed it into native outputs such as ROOT files. yawl-run itself remains format-agnostic.
 
-`attempt.json` is completed after execution with the return code, finish time, stdout/stderr paths, and observed output metadata.
+`attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, and observed output metadata.
 
 ## One language
 
