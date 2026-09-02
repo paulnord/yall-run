@@ -7,6 +7,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import time
 from typing import Any
 
 
@@ -57,6 +58,48 @@ def _next_attempt_number(campaign_dir: Path, task_name: str) -> int:
         if suffix.isdigit():
             numbers.append(int(suffix))
     return max(numbers, default=0) + 1
+
+
+def _run_command(
+    command: str | list[str],
+    *,
+    cwd: Path | None,
+    stdout: Any,
+    stderr: Any,
+    env: dict[str, str],
+) -> tuple[int, dict[str, float | None]]:
+    started = time.monotonic()
+    proc = subprocess.Popen(
+        command,
+        shell=isinstance(command, str),
+        cwd=str(cwd) if cwd else None,
+        stdout=stdout,
+        stderr=stderr,
+        text=True,
+        env=env,
+    )
+
+    user_seconds: float | None = None
+    sys_seconds: float | None = None
+    if hasattr(os, "wait4"):
+        while True:
+            try:
+                _, status, usage = os.wait4(proc.pid, 0)
+                break
+            except InterruptedError:
+                continue
+        proc.returncode = os.waitstatus_to_exitcode(status)
+        user_seconds = float(usage.ru_utime)
+        sys_seconds = float(usage.ru_stime)
+    else:
+        proc.wait()
+
+    timing = {
+        "real_seconds": time.monotonic() - started,
+        "user_seconds": user_seconds,
+        "sys_seconds": sys_seconds,
+    }
+    return int(proc.returncode), timing
 
 
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
@@ -143,17 +186,15 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
-        proc = subprocess.run(
+        returncode, timing = _run_command(
             command,
-            shell=isinstance(command, str),
-            cwd=str(cwd) if cwd else None,
+            cwd=cwd,
             stdout=out,
             stderr=err,
-            text=True,
             env=env,
         )
 
-    state = "completed" if proc.returncode == 0 else "failed"
+    state = "completed" if returncode == 0 else "failed"
     finished = _utc_now()
     outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
     _write_json(attempt_dir / "attempt.json", {
@@ -162,20 +203,21 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "state": state,
         "started_at": started,
         "finished_at": finished,
-        "returncode": proc.returncode,
+        "returncode": returncode,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
         "outputs": outputs,
+        "timing": timing,
         "provenance": str(provenance_path),
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
     })
     task["state"] = state
     task["attempts"] = number
-    task["last_returncode"] = proc.returncode
+    task["last_returncode"] = returncode
     _write_json(task_path, task)
-    return proc.returncode
+    return returncode
 
 
 def main(argv: list[str] | None = None) -> int:
