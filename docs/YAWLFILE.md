@@ -1,6 +1,8 @@
 # Yawlfile syntax
 
-`Yawlfile` is the campaign format for yawl-run. The goal is to keep ordinary workflows readable without giving up the precise internal campaign model.
+`Yawlfile` is the reusable workflow description for yawl-run. It plays roughly the same role as a Makefile: it describes how work fits together, but it is not itself a particular execution.
+
+A concrete execution is a **campaign** created from the Yawlfile.
 
 ## Smallest useful file
 
@@ -25,8 +27,24 @@ If the file is named `Yawlfile`, the specification argument is optional:
 ```bash
 yawl-run validate
 yawl-run plan
-yawl-run start
+yawl-run create
 ```
+
+`create` freezes the expanded task graph into a new campaign directory and runs nothing. Launch that exact campaign with:
+
+```bash
+yawl-run start campaigns/<campaign-id>
+```
+
+A campaign can be started only once. To run the recipe again, create another campaign from the Yawlfile.
+
+Use `-j N` on `start` to limit concurrently active yawl tasks:
+
+```bash
+yawl-run start campaigns/<campaign-id> -j 4
+```
+
+For local campaigns, execution defaults to one task at a time. For Condor campaigns, an omitted `-j` leaves DAGMan at its normal scheduler limits.
 
 ## Data declarations: `@`
 
@@ -50,11 +68,11 @@ merge:
     ./merge @input.part -o @output.merged
 ```
 
-Input globs are resolved when the campaign specification is loaded, so the resulting input list is frozen before execution.
+Input globs are resolved when the Yawlfile is loaded during campaign creation, so the resulting input list is frozen before execution.
 
 ### Static named values
 
-Use `@set` for values that are part of the campaign description but should not be repeated in every path:
+Use `@set` for values that are part of the workflow description but should not be repeated in every path:
 
 ```text
 @set dataset beam2026
@@ -94,6 +112,8 @@ backend condor
 Other campaign-level directives currently supported are `%getenv` and `%wrapper`.
 
 `%cwd` is task-local.
+
+The backend is frozen into the campaign at `create` time. `yawl-run create --backend local` or `--backend condor` can deliberately override the Yawlfile for a particular campaign, which is useful for local smoke tests of a Condor-oriented recipe.
 
 ## Shell escape hatch
 
@@ -141,7 +161,7 @@ pedestal-142
 
 Each task receives one matched `raw` input and produces its own declared output.
 
-The input set is discovered and frozen when the specification is loaded. An `@each` pattern that matches nothing is an error.
+The input set is discovered and frozen when the campaign is created. An `@each` pattern that matches nothing is an error.
 
 ## Patterned dependencies
 
@@ -172,6 +192,32 @@ summary: pedestal-{run}
 The resulting `summary` task depends on every expanded pedestal task, and its `@input.pedestal` collection contains the corresponding files.
 
 `examples/pi/Yawlfile` is a complete map-reduce example. Eight `partial-{chunk}` tasks run the same Python worker against different range files, then one `sum` task fans in all eight outputs.
+
+## Portable attempt provenance
+
+Before each task attempt begins, yawl writes:
+
+```text
+<task>_attempt_001/provenance.json
+```
+
+This launch-provenance record contains the campaign identity, task and attempt identity, resolved inputs, declared outputs, command, cwd, resource requests, host, Python version, and start time. It is written before the program starts and is not rewritten afterward.
+
+The task process receives environment variables including:
+
+```text
+YAWL_CAMPAIGN_ID
+YAWL_CAMPAIGN_NAME
+YAWL_CAMPAIGN_DIR
+YAWL_BACKEND
+YAWL_TASK
+YAWL_ATTEMPT
+YAWL_PROVENANCE
+```
+
+`YAWL_PROVENANCE` points to that JSON file. Analysis-specific software may copy or embed it into native outputs such as ROOT files. yawl-run itself remains format-agnostic.
+
+`attempt.json` is completed after execution with the return code, finish time, stdout/stderr paths, and observed output metadata.
 
 ## One language
 
