@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from yawl_run.backend import render_condor, submit_rendered
+from yawl_run.condor_backend import render_condor, submit_rendered
 from yawl_run.model import load_spec
 
 
@@ -53,7 +53,7 @@ def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, ca
         def wait(self):
             return 0
 
-    monkeypatch.setattr("yawl_run.backend.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("yawl_run.condor_backend.subprocess.Popen", FakePopen)
     submit_rendered(campaign_dir)
 
     assert calls[0][0] == ["condor_submit_dag", "campaign.dag"]
@@ -84,7 +84,7 @@ def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monke
         def wait(self):
             return 1
 
-    monkeypatch.setattr("yawl_run.backend.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("yawl_run.condor_backend.subprocess.Popen", FakePopen)
     with pytest.raises(RuntimeError, match="schedd unavailable"):
         submit_rendered(campaign_dir)
 
