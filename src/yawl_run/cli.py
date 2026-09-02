@@ -172,19 +172,18 @@ def main(argv: list[str] | None = None) -> int:
             cdir, manifest = campaign_manifest(campaign_dir)
             backend = manifest.get("backend", "local")
             if backend == "local":
-                cdir = start_local(cdir)
+                start_local(cdir)
             elif backend == "condor":
                 _require_commands("condor_submit_dag")
-                cdir = submit_rendered(cdir)
+                submit_rendered(cdir)
             elif backend == "slurm":
                 _require_commands("sbatch", "scontrol")
-                cdir = submit_slurm(cdir)
+                submit_slurm(cdir)
             elif backend == "pbs":
                 _require_commands("qsub", "qrls")
-                cdir = submit_pbs(cdir)
+                submit_pbs(cdir)
             else:
                 raise ValueError(f"unknown campaign backend: {backend}")
-            print(cdir)
             return 0
 
         if args.command == "status":
