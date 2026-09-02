@@ -38,13 +38,14 @@ yawl-run start campaigns/<campaign-id>
 
 A campaign can be started only once. To run the recipe again, create another campaign from the Yawlfile.
 
-Use `-j N` on `start` to limit concurrently active yawl tasks:
+For a local campaign, use `-j N` on `create` to freeze the maximum number of concurrently active yawl tasks:
 
 ```bash
-yawl-run start campaigns/<campaign-id> -j 4
+yawl-run create --backend local -j 4
+yawl-run start campaigns/<campaign-id>
 ```
 
-For local campaigns, execution defaults to one task at a time. For Condor campaigns, an omitted `-j` leaves DAGMan at its normal scheduler limits.
+Local campaigns default to one task at a time. `-j` is intentionally invalid for Condor campaigns. Condor processor requests belong to `%cpus` task policy instead.
 
 ## Data declarations: `@`
 
@@ -114,6 +115,12 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 `%cwd` is task-local.
 
 The backend is frozen into the campaign at `create` time. `yawl-run create --backend local` or `--backend condor` can deliberately override the Yawlfile for a particular campaign, which is useful for local smoke tests of a Condor-oriented recipe.
+
+`-j` and `%cpus` are deliberately different:
+
+- `-j N` is local campaign concurrency: at most `N` dependency-ready tasks are active at once.
+- `%cpus N` is a per-task resource request. Condor maps it to `request_cpus = N`.
+- local yawl currently records `%cpus` but does not use it as a local scheduling weight.
 
 ## Shell escape hatch
 
