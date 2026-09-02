@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import sys
+import time
 from typing import Any
 
 from . import __version__
@@ -52,10 +53,8 @@ def campaign_manifest(campaign_dir: str | Path) -> tuple[Path, dict[str, Any]]:
     return campaign_dir, _read_json(manifest_path)
 
 
-def begin_campaign(campaign_dir: str | Path, max_jobs: int | None = None) -> Path:
+def begin_campaign(campaign_dir: str | Path) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
-    if max_jobs is not None and max_jobs < 1:
-        raise ValueError("-j/--jobs must be positive")
     start_path = campaign_dir / "start.json"
     if start_path.exists():
         previous = _read_json(start_path)
@@ -78,12 +77,17 @@ def begin_campaign(campaign_dir: str | Path, max_jobs: int | None = None) -> Pat
     _write_json(start_path, {
         "started_at": _utc_now(),
         "backend": manifest.get("backend", "local"),
-        "max_jobs": max_jobs,
+        "execution": manifest.get("execution", {}),
     })
     return campaign_dir
 
 
-def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = None) -> Path:
+def create_campaign(
+    spec: CampaignSpec,
+    root: str | Path,
+    backend: str | None = None,
+    local_jobs: int | None = None,
+) -> Path:
     root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
@@ -91,11 +95,24 @@ def create_campaign(spec: CampaignSpec, root: str | Path, backend: str | None = 
     selected_backend = backend or spec.backend
     launch_cwd = logical_cwd()
 
+    if selected_backend == "local":
+        jobs = 1 if local_jobs is None else local_jobs
+        if jobs < 1:
+            raise ValueError("-j/--jobs must be positive")
+        execution = {"local": {"jobs": jobs}}
+    elif selected_backend == "condor":
+        if local_jobs is not None:
+            raise ValueError("-j/--jobs is only valid for the local backend")
+        execution = {"condor": {}}
+    else:
+        raise ValueError(f"unknown campaign backend: {selected_backend}")
+
     manifest = {
-        "schema": 5,
+        "schema": 6,
         "id": campaign_dir.name,
         "name": spec.name,
         "backend": selected_backend,
+        "execution": execution,
         "created_at": _utc_now(),
         "yawl_version": __version__,
         "spec_source": str(spec.source),
@@ -143,19 +160,49 @@ def _run_with_retries(campaign_dir: Path, task_name: str) -> int:
     return result
 
 
-def start_local(campaign_dir: str | Path, jobs: int = 1) -> Path:
+def _available_cpus() -> int | None:
+    try:
+        if hasattr(os, "sched_getaffinity"):
+            return len(os.sched_getaffinity(0))
+    except OSError:
+        pass
+    return os.cpu_count()
+
+
+def _load_one() -> float | None:
+    try:
+        return os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return None
+
+
+def start_local(campaign_dir: str | Path) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
         raise ValueError(f"campaign backend is not local: {campaign_dir}")
+
+    jobs = int(manifest.get("execution", {}).get("local", {}).get("jobs", 1))
     if jobs < 1:
-        raise ValueError("-j/--jobs must be positive")
-    begin_campaign(campaign_dir, jobs)
+        raise ValueError("invalid local concurrency stored in campaign")
+    begin_campaign(campaign_dir)
+
+    cpus = _available_cpus()
+    load1 = _load_one()
+    geek = [
+        f"host={platform.node()}",
+        f"pid={os.getpid()}",
+        f"jobs={jobs}",
+        f"cpus_available={cpus if cpus is not None else 'unknown'}",
+    ]
+    if load1 is not None:
+        geek.append(f"load1={load1:.2f}")
+    print("[local] " + " ".join(geek), flush=True)
 
     task_names = list(manifest["tasks"])
     remaining = set(task_names)
-    running: dict[Future[int], str] = {}
+    running: dict[Future[int], tuple[str, float]] = {}
 
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
+    with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="yawl") as pool:
         while remaining or running:
             progressed = False
 
@@ -171,26 +218,56 @@ def start_local(campaign_dir: str | Path, jobs: int = 1) -> Path:
                     task["state"] = "blocked"
                     _write_json(_task_path(campaign_dir, name), task)
                     remaining.remove(name)
+                    print(f"[block] {name} parent failed", flush=True)
                     progressed = True
                     continue
                 if not all(state == "completed" for state in parent_states.values()):
                     continue
 
+                print(f"[start] {name}", flush=True)
                 future = pool.submit(_run_with_retries, campaign_dir, name)
-                running[future] = name
+                running[future] = (name, time.monotonic())
                 remaining.remove(name)
                 progressed = True
 
             if running:
                 done, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in done:
-                    running.pop(future)
-                    future.result()
+                    name, started = running.pop(future)
+                    result = future.result()
+                    elapsed = time.monotonic() - started
+                    task = _read_json(_task_path(campaign_dir, name))
+                    attempt = int(task.get("attempts", 0))
+                    if result == 0:
+                        print(
+                            f"[done ] {name} attempt={attempt} elapsed={elapsed:.2f}s",
+                            flush=True,
+                        )
+                    else:
+                        stderr = f"{name}_attempt_{attempt:03d}/stderr.log"
+                        print(
+                            f"[FAIL ] {name} attempt={attempt} exit={result} "
+                            f"elapsed={elapsed:.2f}s stderr={stderr}",
+                            flush=True,
+                        )
                 progressed = True
 
             if not progressed and remaining:
                 raise RuntimeError("campaign dependency graph made no progress")
 
+    status = campaign_status(campaign_dir)
+    counts = status["counts"]
+    completed = counts.get("completed", 0)
+    failed = counts.get("failed", 0)
+    blocked = counts.get("blocked", 0)
+    print(
+        f"[local] finished completed={completed} failed={failed} blocked={blocked}",
+        flush=True,
+    )
+    if failed or blocked:
+        raise RuntimeError(
+            f"local campaign failed: completed={completed} failed={failed} blocked={blocked}"
+        )
     return campaign_dir
 
 
