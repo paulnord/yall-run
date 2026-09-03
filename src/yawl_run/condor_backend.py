@@ -10,7 +10,12 @@ import shutil
 import subprocess
 from typing import Any
 
-from .campaign import begin_campaign, create_campaign
+from .campaign import (
+    begin_campaign,
+    cancel_prepared_start,
+    create_campaign,
+    prepare_campaign_start,
+)
 from .model import CampaignSpec
 from .paths import logical_absolute
 
@@ -131,7 +136,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     return campaign_dir
 
 
-def submit_rendered(campaign_dir: str | Path) -> Path:
+def submit_rendered(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
     campaign_dir = logical_absolute(campaign_dir)
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.is_file():
@@ -155,16 +160,26 @@ def submit_rendered(campaign_dir: str | Path) -> Path:
     if (campaign_dir / "start.json").exists():
         raise ValueError(f"campaign has already been started: {campaign_dir}")
 
+    # DAGMan children may become runnable as soon as condor_submit_dag returns
+    # the DAGMan job to the scheduler. Record the requested start policy before
+    # submission so an early worker sees the same overwrite choice.
+    prepare_campaign_start(campaign_dir, overwrite=overwrite)
+
     command = ["condor_submit_dag", dag_path.name]
     print(f"[condor] submitting {dag_path}", flush=True)
-    proc = subprocess.Popen(
-        command,
-        cwd=condor_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=condor_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except Exception:
+        cancel_prepared_start(campaign_dir)
+        raise
+
     lines: list[str] = []
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -178,15 +193,17 @@ def submit_rendered(campaign_dir: str | Path) -> Path:
         "returncode": returncode,
         "stdout": output,
         "stderr": "",
+        "overwrite": bool(overwrite),
     }
     match = _CLUSTER_RE.search(output)
     if match:
         record["cluster_id"] = int(match.group(1))
     _write_json(submit_path, record)
     if returncode != 0:
+        cancel_prepared_start(campaign_dir)
         raise RuntimeError(output.strip() or "condor_submit_dag failed")
 
-    begin_campaign(campaign_dir)
+    begin_campaign(campaign_dir, overwrite=overwrite)
     cluster = record.get("cluster_id")
     suffix = f" cluster={cluster}" if cluster is not None else ""
     print(f"[condor] submitted{suffix}", flush=True)

@@ -133,6 +133,17 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 
 `%cwd` is task-local.
 
+`%overwrite` is also task-local. It permits that task to run when one or more of its declared output paths already exist:
+
+```text
+analysis:
+    %overwrite
+    @output root result.root
+    ./Analyze -o @output.root
+```
+
+`%overwrite` never deletes, truncates, empties, or otherwise modifies an existing output itself. It only permits the task command to run. The command remains responsible for whatever replacement behavior it performs.
+
 The backend is frozen into the campaign at `create` time. `yawl-run create --backend local`, `--backend condor`, `--backend slurm`, or `--backend pbs` can deliberately override the Yawlfile for a particular campaign.
 
 `-j` and `%cpus` are deliberately different:
@@ -140,6 +151,48 @@ The backend is frozen into the campaign at `create` time. `yawl-run create --bac
 - `-j N` is local campaign concurrency: at most `N` dependency-ready tasks are active at once.
 - `%cpus N` is a per-task resource request for queued execution.
 - local yawl currently records `%cpus` but does not use it as a local scheduling weight.
+
+## Declared output protection
+
+A declared output is treated as a product owned by its task. Before a campaign is launched, `start` preflights every declared output path that is not covered by `%overwrite`. If any of those paths already exists, the campaign is not started and no local task or queued job is launched.
+
+This applies equally to files, directories, and symlinks. Parent directories that merely contain an output are not protected unless the directory itself is declared as an output.
+
+For example:
+
+```text
+analysis:
+    @output root results/run308.root
+    @output plots results/run308-plots
+    ./Analyze ...
+```
+
+If either `results/run308.root` or `results/run308-plots` already exists, `yawl-run start` refuses the campaign by default. The campaign remains unstarted, so the user can inspect or remove the conflicting product, or explicitly retry the start with overwrite permission.
+
+There are two ways to permit replacement:
+
+```text
+analysis:
+    %overwrite
+    @output root results/run308.root
+    ./Analyze ...
+```
+
+permits replacement for that task, while:
+
+```bash
+yawl-run start --overwrite campaigns/<campaign-id>
+```
+
+permits pre-existing declared outputs for every task in that campaign start. The campaign-wide choice is recorded in `start.json`.
+
+Neither form causes yawl-run to remove existing data. They only disable the existence guard for the affected task or campaign start.
+
+The worker repeats the output existence check immediately before each task command. This catches a product that appears after the campaign-wide start preflight but before that particular task becomes runnable. Such an attempt records failure kind `outputs_exist` and does not launch the command.
+
+Two different expanded tasks may not declare the same output path. This is rejected while the Yawlfile is validated, regardless of `%overwrite`, because one campaign product has one owning task.
+
+Automatic `%retry` follows the same worker-level rule. If a failed attempt leaves a declared output behind, the next attempt will stop at the output guard unless the task has `%overwrite`, the campaign was started with `--overwrite`, or the failed command cleaned up its partial product itself.
 
 ## Shell escape hatch
 
@@ -229,9 +282,10 @@ The resulting `summary` task depends on every expanded pedestal task, and its `@
 
 ## Campaign records
 
-When a campaign is created, the frozen workflow is stored once in `campaign.json`. The current state of each task is kept separately in compact files:
+When a campaign is created, the exact source Yawlfile and the frozen expanded workflow are stored with the campaign:
 
 ```text
+Yawlfile
 campaign.json
 start.json
 state/
@@ -240,9 +294,11 @@ state/
     sum.json
 ```
 
-`campaign.json` contains campaign identity, creation environment, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, and outputs.
+The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
 
 The files under `state/` are mutable bookkeeping only. They contain the current task state, attempt count, and, after execution, the most recent return code. Keeping these files small lets workers update state independently without duplicating the full task definition.
+
+`start.json` records how the frozen campaign was actually launched, including whether the campaign-wide `--overwrite` permission was requested. A rejected output preflight does not create `start.json`.
 
 ## Portable attempt provenance
 
@@ -252,7 +308,7 @@ Before each task attempt begins, yawl writes:
 <task>_attempt_001/provenance.json
 ```
 
-This launch-provenance record contains the campaign identity, task and attempt identity, resolved inputs, declared outputs, command, cwd, resource requests, host, Python version, and start time. It is written before the program starts and is not rewritten afterward.
+This launch-provenance record contains the campaign identity, task and attempt identity, resolved inputs, declared outputs, command, cwd, resource requests, overwrite policy, host, Python version, and start time. It is written before the program starts and is not rewritten afterward.
 
 The task process receives environment variables including:
 
@@ -268,7 +324,7 @@ YAWL_PROVENANCE
 
 `YAWL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yawl-run remains format-agnostic.
 
-`attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, and observed output metadata.
+`attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, pre-launch output observations, and final observed output metadata. A worker-level task stopped by the output guard records failure kind `outputs_exist` and no command return code because the command was never launched.
 
 ## One language
 

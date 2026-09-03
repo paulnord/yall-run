@@ -111,6 +111,10 @@ def _state_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "state" / f"{task_name}.json"
 
 
+def _start_pending_path(campaign_dir: Path) -> Path:
+    return campaign_dir / "state" / "start-pending.json"
+
+
 def _task_names(manifest: dict[str, Any]) -> list[str]:
     order = manifest.get("task_order")
     if isinstance(order, list):
@@ -183,8 +187,7 @@ def campaign_manifest(campaign_dir: str | Path) -> tuple[Path, dict[str, Any]]:
     return campaign_dir, _read_json(manifest_path)
 
 
-def begin_campaign(campaign_dir: str | Path) -> Path:
-    campaign_dir, manifest = campaign_manifest(campaign_dir)
+def _validate_unstarted(campaign_dir: Path, manifest: dict[str, Any]) -> None:
     start_path = campaign_dir / "start.json"
     if start_path.exists():
         previous = _read_json(start_path)
@@ -204,11 +207,100 @@ def begin_campaign(campaign_dir: str | Path) -> Path:
             f"campaign already contains task attempts ({names}); create a new campaign"
         )
 
-    _write_json(start_path, {
+
+def _output_path(ref: Any) -> Path | None:
+    if isinstance(ref, dict):
+        value = ref.get("path")
+    else:
+        value = ref
+    if value is None:
+        return None
+    return Path(str(value))
+
+
+def _existing_declared_outputs(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    overwrite: bool,
+) -> list[tuple[str, str]]:
+    if overwrite:
+        return []
+
+    conflicts: list[tuple[str, str]] = []
+    for name in _task_names(manifest):
+        task = _task_definition(campaign_dir, manifest, name)
+        if bool(task.get("overwrite", False)):
+            continue
+        for ref in task.get("outputs", []):
+            path = _output_path(ref)
+            if path is not None and (path.exists() or path.is_symlink()):
+                conflicts.append((name, str(path)))
+    return conflicts
+
+
+def _raise_output_conflicts(conflicts: list[tuple[str, str]]) -> None:
+    shown = ", ".join(f"{task}:{path}" for task, path in conflicts[:3])
+    if len(conflicts) > 3:
+        shown += ", ..."
+    raise ValueError(
+        "declared outputs already exist: "
+        + shown
+        + "; use %overwrite for the owning task or start --overwrite"
+    )
+
+
+def prepare_campaign_start(
+    campaign_dir: str | Path, *, overwrite: bool = False
+) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    _validate_unstarted(campaign_dir, manifest)
+
+    conflicts = _existing_declared_outputs(
+        campaign_dir, manifest, overwrite=overwrite
+    )
+    if conflicts:
+        _raise_output_conflicts(conflicts)
+
+    pending_path = _start_pending_path(campaign_dir)
+    if pending_path.exists():
+        raise ValueError(f"campaign start is already in progress: {campaign_dir}")
+    _write_json(pending_path, {
+        "requested_at": _utc_now(),
+        "overwrite": bool(overwrite),
+    })
+    return campaign_dir
+
+
+def cancel_prepared_start(campaign_dir: str | Path) -> None:
+    campaign_dir = logical_absolute(campaign_dir)
+    pending_path = _start_pending_path(campaign_dir)
+    if pending_path.exists():
+        pending_path.unlink()
+
+
+def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    pending_path = _start_pending_path(campaign_dir)
+    if pending_path.is_file():
+        pending = _read_json(pending_path)
+        overwrite = bool(pending.get("overwrite", overwrite))
+        start_path = campaign_dir / "start.json"
+        if start_path.exists():
+            previous = _read_json(start_path)
+            when = previous.get("started_at", "previously")
+            raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
+    else:
+        _validate_unstarted(campaign_dir, manifest)
+
+    _write_json(campaign_dir / "start.json", {
         "started_at": _utc_now(),
         "backend": manifest.get("backend", "local"),
         "execution": manifest.get("execution", {}),
+        "overwrite": bool(overwrite),
     })
+    if pending_path.exists():
+        pending_path.unlink()
     return campaign_dir
 
 
@@ -394,7 +486,7 @@ def _timing_suffix(timing: dict[str, float]) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
-def start_local(campaign_dir: str | Path) -> Path:
+def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
         raise ValueError(f"campaign backend is not local: {campaign_dir}")
@@ -402,7 +494,13 @@ def start_local(campaign_dir: str | Path) -> Path:
     jobs = int(manifest.get("execution", {}).get("local", {}).get("jobs", 1))
     if jobs < 1:
         raise ValueError("invalid local concurrency stored in campaign")
-    begin_campaign(campaign_dir)
+
+    prepare_campaign_start(campaign_dir, overwrite=overwrite)
+    try:
+        begin_campaign(campaign_dir, overwrite=overwrite)
+    except Exception:
+        cancel_prepared_start(campaign_dir)
+        raise
 
     logical_cpus, physical_cores, threads_per_core = _cpu_topology()
     load1 = _load_one()

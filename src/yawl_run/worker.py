@@ -48,6 +48,35 @@ def _missing_paths(records: list[dict[str, Any]]) -> list[str]:
     return [str(record["path"]) for record in records if not record.get("exists", False)]
 
 
+def _existing_paths(records: list[dict[str, Any]]) -> list[str]:
+    result: list[str] = []
+    for record in records:
+        path = Path(str(record["path"]))
+        if record.get("exists", False) or path.is_symlink():
+            result.append(str(path))
+    return result
+
+
+def _campaign_overwrite(campaign_dir: Path) -> bool:
+    start_path = campaign_dir / "start.json"
+    if start_path.is_file():
+        try:
+            return bool(_read_json(start_path).get("overwrite", False))
+        except (OSError, json.JSONDecodeError):
+            return False
+
+    # Condor can start a node immediately after DAG submission, before the
+    # submit command returns and start.json is committed. A prepared start
+    # record carries the requested policy across that short race window.
+    pending_path = campaign_dir / "state" / "start-pending.json"
+    if pending_path.is_file():
+        try:
+            return bool(_read_json(pending_path).get("overwrite", False))
+        except (OSError, json.JSONDecodeError):
+            return False
+    return False
+
+
 def _legacy_task_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / f"{task_name}.json"
 
@@ -187,6 +216,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     worker_pid = os.getpid()
+    task_overwrite = bool(task.get("overwrite", False))
+    campaign_overwrite = _campaign_overwrite(campaign_dir)
 
     launch_provenance = {
         "schema": 1,
@@ -207,6 +238,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "resources": task.get("resources", {}),
             "inputs": inputs,
             "outputs": task.get("outputs", []),
+            "overwrite": task_overwrite,
         },
         "execution": {
             "started_at": started,
@@ -215,6 +247,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "python": sys.version,
             "pid": worker_pid,
             "worker_pid": worker_pid,
+            "campaign_overwrite": campaign_overwrite,
         },
     }
     _write_json(provenance_path, launch_provenance)
@@ -254,6 +287,43 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         })
         return 2
 
+    outputs_before = [_inspect_file(ref) for ref in task.get("outputs", [])]
+    existing_outputs = _existing_paths(outputs_before)
+    if existing_outputs and not (task_overwrite or campaign_overwrite):
+        stdout_path.touch()
+        stderr_path.write_text(
+            "yawl-worker: declared output already exists: "
+            + ", ".join(existing_outputs)
+            + "\n"
+        )
+        finished = _utc_now()
+        failure = {"kind": "outputs_exist", "paths": existing_outputs}
+        _write_json(attempt_dir / "attempt.json", {
+            "task": task_name,
+            "attempt": number,
+            "state": "failed",
+            "started_at": started,
+            "finished_at": finished,
+            "returncode": 2,
+            "command_returncode": None,
+            "worker_pid": worker_pid,
+            "command_pid": None,
+            "command": command,
+            "cwd": task.get("cwd"),
+            "inputs": inputs,
+            "outputs": outputs_before,
+            "failure": failure,
+            "provenance": str(provenance_path),
+            "stdout": str(stdout_path),
+            "stderr": str(stderr_path),
+        })
+        _write_task_state(campaign_dir, manifest, task_name, {
+            "state": "failed",
+            "attempts": number,
+            "last_returncode": 2,
+        })
+        return 2
+
     _write_json(attempt_dir / "attempt.json", {
         "task": task_name,
         "attempt": number,
@@ -263,6 +333,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
+        "outputs_before": outputs_before,
         "provenance": str(provenance_path),
     })
     _write_task_state(campaign_dir, manifest, task_name, {
@@ -322,6 +393,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
+        "outputs_before": outputs_before,
         "outputs": outputs,
         "timing": timing,
         "provenance": str(provenance_path),
