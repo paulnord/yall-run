@@ -43,6 +43,7 @@ class TaskSpec:
     inputs: Tuple[FileRef, ...] = ()
     outputs: Tuple[FileRef, ...] = ()
     resources: ResourceSpec = ResourceSpec()
+    overwrite: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ class CampaignSpec:
     condor: CondorSpec = CondorSpec()
 
 
-def _validate_graph(tasks: list[TaskSpec]) -> None:
+def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None:
     by_name = {task.name: task for task in tasks}
     if len(by_name) != len(tasks):
         seen: set[str] = set()
@@ -85,6 +86,20 @@ def _validate_graph(tasks: list[TaskSpec]) -> None:
 
     for name in by_name:
         visit(name)
+
+    if base_dir is not None:
+        owners: dict[str, str] = {}
+        for task in tasks:
+            task_cwd = logical_absolute(task.cwd, base_dir) if task.cwd else base_dir
+            for output in task.outputs:
+                path = str(logical_absolute(output.path, task_cwd))
+                previous = owners.get(path)
+                if previous is not None and previous != task.name:
+                    raise ValueError(
+                        f"declared output {path!r} is owned by both "
+                        f"{previous!r} and {task.name!r}"
+                    )
+                owners[path] = task.name
 
 
 def load_spec(path: str | Path) -> CampaignSpec:

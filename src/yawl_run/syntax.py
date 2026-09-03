@@ -37,6 +37,7 @@ class _TaskTemplate:
     cwd: str | None = None
     command: str | None = None
     shell: bool = False
+    overwrite: bool = False
 
 
 @dataclass(frozen=True)
@@ -289,6 +290,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 current.disk = values[0]
             elif directive == "cwd" and len(values) == 1:
                 current.cwd = values[0]
+            elif directive == "overwrite" and not values:
+                current.overwrite = True
             else:
                 raise ValueError(
                     f"line {lineno}: unknown or malformed task directive %{directive}"
@@ -572,6 +575,7 @@ def _instantiate(
             memory=template.memory,
             disk=template.disk,
         ),
+        overwrite=template.overwrite,
     )
 
 
@@ -592,7 +596,7 @@ def load_yawl_spec(source: Path) -> CampaignSpec:
         for binding in families[template.name].bindings:
             tasks.append(_instantiate(template, binding, families))
 
-    _validate_graph(tasks)
+    _validate_graph(tasks, source.parent)
     return CampaignSpec(
         name=campaign_name,
         tasks=tuple(tasks),

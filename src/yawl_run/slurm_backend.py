@@ -18,7 +18,12 @@ from .batch_common import (
     worker_command,
     write_json,
 )
-from .campaign import begin_campaign, create_campaign
+from .campaign import (
+    begin_campaign,
+    cancel_prepared_start,
+    create_campaign,
+    prepare_campaign_start,
+)
 from .model import CampaignSpec
 
 _SLURM_STATES = {
@@ -111,7 +116,7 @@ def _parse_job_id(output: str) -> str:
     return job_id
 
 
-def submit_slurm(campaign_dir: str | Path) -> Path:
+def submit_slurm(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
     campaign_dir, manifest = load_backend_campaign(campaign_dir, "slurm")
     slurm_dir = campaign_dir / "slurm"
     render_path = slurm_dir / "render.json"
@@ -125,6 +130,8 @@ def submit_slurm(campaign_dir: str | Path) -> Path:
             raise ValueError(f"campaign has already been submitted: {campaign_dir}")
     if (campaign_dir / "start.json").exists():
         raise ValueError(f"campaign has already been started: {campaign_dir}")
+
+    prepare_campaign_start(campaign_dir, overwrite=overwrite)
 
     scripts = render.get("scripts", {})
     task_names = campaign_task_names(manifest)
@@ -172,11 +179,13 @@ def submit_slurm(campaign_dir: str | Path) -> Path:
                 raise RuntimeError("Slurm submission graph made no progress")
     except Exception:
         _cancel_jobs(list(job_ids.values()))
+        cancel_prepared_start(campaign_dir)
         write_json(submit_path, {
             "backend": "slurm",
             "returncode": 1,
             "commands": commands,
             "jobs": job_ids,
+            "overwrite": bool(overwrite),
             "cancelled_after_submission_failure": True,
         })
         raise
@@ -187,12 +196,14 @@ def submit_slurm(campaign_dir: str | Path) -> Path:
         "commands": commands,
         "jobs": job_ids,
         "held": True,
+        "overwrite": bool(overwrite),
     })
 
     try:
-        begin_campaign(campaign_dir)
+        begin_campaign(campaign_dir, overwrite=overwrite)
     except Exception:
         _cancel_jobs(list(job_ids.values()))
+        cancel_prepared_start(campaign_dir)
         raise
 
     release_command = ["scontrol", "release", *job_ids.values()]

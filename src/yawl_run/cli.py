@@ -66,6 +66,11 @@ def _parser() -> argparse.ArgumentParser:
         metavar="CAMPAIGN_DIR",
         help="campaign directory; if omitted, read one path from stdin",
     )
+    start.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="permit all tasks in this start to use pre-existing declared outputs",
+    )
 
     status = sub.add_parser("status", help="show campaign status")
     _friendly_sections(status)
@@ -138,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
                     extras.append(f"memory={task.resources.memory}")
                 if task.resources.disk is not None:
                     extras.append(f"disk={task.resources.disk}")
+                if task.overwrite:
+                    extras.append("overwrite")
                 suffix = f" [{' '.join(extras)}]" if extras else ""
                 print(f"  {task.name}: {_display_command(task.command)}{suffix}")
             return 0
@@ -172,16 +179,16 @@ def main(argv: list[str] | None = None) -> int:
             cdir, manifest = campaign_manifest(campaign_dir)
             backend = manifest.get("backend", "local")
             if backend == "local":
-                start_local(cdir)
+                start_local(cdir, overwrite=args.overwrite)
             elif backend == "condor":
                 _require_commands("condor_submit_dag")
-                submit_rendered(cdir)
+                submit_rendered(cdir, overwrite=args.overwrite)
             elif backend == "slurm":
                 _require_commands("sbatch", "scontrol")
-                submit_slurm(cdir)
+                submit_slurm(cdir, overwrite=args.overwrite)
             elif backend == "pbs":
                 _require_commands("qsub", "qrls")
-                submit_pbs(cdir)
+                submit_pbs(cdir, overwrite=args.overwrite)
             else:
                 raise ValueError(f"unknown campaign backend: {backend}")
             return 0
