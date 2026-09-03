@@ -152,6 +152,33 @@ def test_export_discovers_multiple_campaigns_under_directory(tmp_path):
         ]
 
 
+def test_export_legacy_task_without_command(tmp_path):
+    campaign_dir = tmp_path / "legacy"
+    campaign_dir.mkdir()
+    (campaign_dir / "campaign.json").write_text(json.dumps({
+        "schema": 1,
+        "id": "legacy-campaign",
+        "name": "legacy",
+        "backend": "local",
+        "tasks": {
+            "old-task": {
+                "parents": [],
+                "inputs": [],
+                "outputs": [],
+            }
+        },
+        "task_order": ["old-task"],
+    }))
+
+    sqlite_path = tmp_path / "legacy.sqlite"
+    export_provenance([campaign_dir], sqlite_path=sqlite_path)
+
+    with sqlite3.connect(sqlite_path) as db:
+        assert db.execute(
+            "SELECT task_name, command_json FROM task WHERE campaign_id = 'legacy-campaign'"
+        ).fetchone() == ("old-task", None)
+
+
 def test_cli_export_requires_output_and_reports_counts(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     campaign_dir = _campaign(tmp_path)
