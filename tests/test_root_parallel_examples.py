@@ -58,6 +58,36 @@ def test_root_parallel_example_python_syntax(tmp_path):
             )
 
 
+def test_root_parallel_examples_declare_graphics():
+    root = Path(__file__).resolve().parents[1] / "examples"
+    expected = {
+        "muon-lifetime": (
+            "muon-work/run-{run}-fit.png",
+            "muon-work/run-{run}-fit.pdf",
+            "muon-work/combined_lifetime.png",
+            "muon-work/combined_lifetime.pdf",
+        ),
+        "z-scan": (
+            "z-work/raw_spectrum.png",
+            "z-work/raw_spectrum.pdf",
+            "z-work/best_fit_overlay.png",
+            "z-work/best_fit_overlay.pdf",
+            "z-work/nll_surface.png",
+            "z-work/nll_surface.pdf",
+        ),
+        "invariant-mass": (
+            "mass-work/run-{run}-fit.png",
+            "mass-work/run-{run}-fit.pdf",
+            "mass-work/combined_fit.png",
+            "mass-work/combined_fit.pdf",
+        ),
+    }
+    for example_name, filenames in expected.items():
+        yawlfile = (root / example_name / "Yawlfile").read_text()
+        for filename in filenames:
+            assert filename in yawlfile
+
+
 def test_z_scan_includes_generation_truth_grid_point():
     root = Path(__file__).resolve().parents[1]
     grid = root / "examples" / "z-scan" / "grid"
