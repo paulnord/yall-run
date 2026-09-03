@@ -19,6 +19,9 @@ from .paths import logical_absolute, logical_cwd
 from .worker import run_task
 
 
+INPUT_HASH_MAX_BYTES = 16 * 1024 * 1024
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -48,6 +51,25 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _input_creation_fingerprint(path: Path) -> dict[str, Any] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if not path.is_file():
+        return None
+
+    result: dict[str, Any] = {"size_bytes": stat.st_size}
+    if stat.st_size <= INPUT_HASH_MAX_BYTES:
+        try:
+            result["sha256"] = _sha256_file(path)
+        except OSError as exc:
+            result["hash_error"] = str(exc)
+    else:
+        result["sha256_skipped"] = "size_limit"
+    return result
 
 
 def _executable_provenance(
@@ -350,10 +372,17 @@ def create_campaign(
         executable = _executable_provenance(record["command"], task_cwd)
         if executable is not None:
             record["executable"] = executable
-        record["inputs"] = [
-            {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
-            for item in task.inputs
-        ]
+        record["inputs"] = []
+        for item in task.inputs:
+            input_path = logical_absolute(item.path, task_cwd)
+            input_record: dict[str, Any] = {
+                "role": item.role,
+                "path": str(input_path),
+            }
+            fingerprint = _input_creation_fingerprint(input_path)
+            if fingerprint is not None:
+                input_record["creation_fingerprint"] = fingerprint
+            record["inputs"].append(input_record)
         record["outputs"] = [
             {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
             for item in task.outputs
@@ -373,6 +402,11 @@ def create_campaign(
             "path": "Yawlfile",
             "source_name": spec.source.name,
             "sha256": source_sha256,
+        },
+        "set_values": dict(spec.set_values),
+        "input_hash_policy": {
+            "algorithm": "sha256",
+            "max_bytes": INPUT_HASH_MAX_BYTES,
         },
         "task_order": [task.name for task in spec.tasks],
         "tasks": frozen_tasks,
