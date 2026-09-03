@@ -36,6 +36,21 @@ def test_mcmc_example_python_syntax(tmp_path):
         )
 
 
+def test_mcmc_example_uses_low_statistics_lfhcal_toy():
+    root = Path(__file__).resolve().parents[1]
+    example = root / "examples" / "mcmc"
+    prepare = (example / "prepare.py").read_text()
+    chain = (example / "run_chain.py").read_text()
+
+    assert 'default=2500' in prepare
+    assert '"Landau MP [ADC]", 80.0, 40.0, 176.0' in prepare
+    assert '"Landau width [ADC]", 8.0, 0.5, 30.0' in prepare
+    assert '"Gaussian resolution [ADC]", 4.0, 0.5, 20.0' in prepare
+    assert 'LANDAU_MP_SHIFT = -0.22278298' in prepare
+    assert 'x_max = 320.0' in prepare
+    assert 'proposal = ROOT.RooStats.SequentialProposal(30.0)' in chain
+
+
 def test_mcmc_pyroot_launcher_shell_syntax():
     root = Path(__file__).resolve().parents[1]
     launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
