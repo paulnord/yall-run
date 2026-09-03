@@ -25,7 +25,7 @@ class _RefTemplate:
 
 @dataclass
 class _EachTemplate:
-    name: str
+    names: List[str]
     values: List[str]
     pattern: bool
 
@@ -105,14 +105,14 @@ def _pattern_regex(pattern: str) -> re.Pattern[str]:
 
 def _each_bindings(template: _TaskTemplate) -> Tuple[Mapping[str, str], ...]:
     assert template.each is not None
-    name_fields = set(_fields(template.name))
-    if not name_fields:
+    task_fields = set(_fields(template.name))
+    if not task_fields:
         raise ValueError(f"line {template.lineno}: @each requires placeholders in task name")
 
     if template.each.pattern:
         pattern = template.each.values[0]
         pattern_fields = set(_fields(pattern))
-        if pattern_fields != name_fields:
+        if pattern_fields != task_fields:
             raise ValueError(
                 f"line {template.lineno}: @each placeholders must match task name placeholders"
             )
@@ -127,13 +127,28 @@ def _each_bindings(template: _TaskTemplate) -> Tuple[Mapping[str, str], ...]:
             raise ValueError(f"line {template.lineno}: @each matched no files: {pattern}")
         return tuple(values)
 
-    if name_fields != {template.each.name}:
+    names = template.each.names
+    if len(set(names)) != len(names):
+        raise ValueError(f"line {template.lineno}: explicit @each field names must be unique")
+    if set(names) != task_fields:
         raise ValueError(
-            f"line {template.lineno}: explicit @each name must match the task placeholder"
+            f"line {template.lineno}: explicit @each names must match the task placeholders"
         )
-    if len(set(template.each.values)) != len(template.each.values):
-        raise ValueError(f"line {template.lineno}: explicit @each values must be unique")
-    return tuple({template.each.name: value} for value in template.each.values)
+
+    width = len(names)
+    if len(template.each.values) % width:
+        raise ValueError(
+            f"line {template.lineno}: explicit @each has {len(template.each.values)} values "
+            f"for {width} fields; value count must be an exact multiple of field count"
+        )
+
+    rows = [
+        tuple(template.each.values[index:index + width])
+        for index in range(0, len(template.each.values), width)
+    ]
+    if len(set(rows)) != len(rows):
+        raise ValueError(f"line {template.lineno}: explicit @each rows must be unique")
+    return tuple(dict(zip(names, row)) for row in rows)
 
 
 def _compatible(candidate: Mapping[str, str], binding: Mapping[str, str]) -> bool:
@@ -191,6 +206,38 @@ def _apply_static_variables(
             task.cwd = _replace_static(task.cwd, variables)
         if task.command is not None:
             task.command = _replace_static(task.command, variables)
+
+
+def _explicit_each_parts(parts: List[str], lineno: int) -> Tuple[List[str], List[str]] | None:
+    tokens = parts[1:]
+    colon_index: int | None = None
+    normalized: List[str] = []
+    for token in tokens:
+        if token == ":":
+            if colon_index is not None:
+                raise ValueError(f"line {lineno}: explicit @each may contain only one ':'")
+            colon_index = len(normalized)
+            continue
+        if token.endswith(":") and _valid_variable_name(token[:-1]):
+            if colon_index is not None:
+                raise ValueError(f"line {lineno}: explicit @each may contain only one ':'")
+            normalized.append(token[:-1])
+            colon_index = len(normalized)
+            continue
+        normalized.append(token)
+
+    if colon_index is None:
+        return None
+    names = normalized[:colon_index]
+    values = normalized[colon_index:]
+    if not names:
+        raise ValueError(f"line {lineno}: explicit @each needs at least one field before ':'")
+    if not values:
+        raise ValueError(f"line {lineno}: explicit @each needs values after ':'")
+    bad = [name for name in names if not _valid_variable_name(name)]
+    if bad:
+        raise ValueError(f"line {lineno}: invalid @each field name {bad[0]!r}")
+    return names, values
 
 
 def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
@@ -298,14 +345,19 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 continue
             if directive == "each":
                 if len(parts) < 3:
-                    raise ValueError(f"line {lineno}: @each needs a name and value or path")
+                    raise ValueError(f"line {lineno}: @each needs fields and values or a path")
                 if current.each is not None:
                     raise ValueError(
                         f"line {lineno}: only one @each is supported per task"
                     )
+                explicit = _explicit_each_parts(parts, lineno)
+                if explicit is not None:
+                    names, values = explicit
+                    current.each = _EachTemplate(names=names, values=values, pattern=False)
+                    continue
                 values = parts[2:]
                 current.each = _EachTemplate(
-                    name=parts[1],
+                    names=[parts[1]],
                     values=values,
                     pattern=len(values) == 1 and bool(_fields(values[0])),
                 )
@@ -581,7 +633,7 @@ def _instantiate(
     inputs: List[FileRef] = []
     if template.each is not None and template.each.pattern:
         each_path = _format(template.each.values[0], binding, "@each path")
-        inputs.append(FileRef(path=each_path, role=template.each.name))
+        inputs.append(FileRef(path=each_path, role=template.each.names[0]))
     for ref in template.inputs:
         for path in ref.paths:
             for expanded in _expand_path_template(
