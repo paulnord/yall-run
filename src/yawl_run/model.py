@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Tuple, Union
 
@@ -95,4 +96,13 @@ def load_spec(path: str | Path) -> CampaignSpec:
 
     from .syntax import load_yawl_spec
 
-    return load_yawl_spec(source)
+    # Relative paths in a Yawlfile belong to the workflow, not to whichever
+    # directory happened to invoke yawl-run. The syntax loader uses ordinary
+    # glob operations while expanding @each and input patterns, so parse from
+    # the Yawlfile directory and then restore the caller's working directory.
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(source.parent)
+        return load_yawl_spec(source)
+    finally:
+        os.chdir(previous_cwd)

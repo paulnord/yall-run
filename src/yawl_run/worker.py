@@ -88,16 +88,37 @@ def _write_task_state(
     _write_json(legacy_path, task)
 
 
-def _next_attempt_number(campaign_dir: Path, task_name: str) -> int:
-    prefix = f"{task_name}_attempt_"
-    numbers: list[int] = []
-    for path in campaign_dir.iterdir():
-        if not path.is_dir() or not path.name.startswith(prefix):
-            continue
-        suffix = path.name[len(prefix):]
-        if suffix.isdigit():
-            numbers.append(int(suffix))
-    return max(numbers, default=0) + 1
+def _current_attempt_count(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> int:
+    state_path = _state_path(campaign_dir, task_name)
+    if state_path.is_file():
+        state = _read_json(state_path)
+        return int(state.get("attempts", 0))
+
+    legacy_path = _legacy_task_path(campaign_dir, task_name)
+    if legacy_path.is_file():
+        task = _read_json(legacy_path)
+        return int(task.get("attempts", 0))
+
+    _task_definition(campaign_dir, manifest, task_name)
+    return 0
+
+
+def _next_attempt_number(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> int:
+    number = _current_attempt_count(campaign_dir, manifest, task_name) + 1
+    # A worker can die after creating an attempt directory but before updating
+    # state. Avoid a full campaign-directory scan while still stepping around
+    # such an orphaned attempt directory.
+    while (campaign_dir / f"{task_name}_attempt_{number:03d}").exists():
+        number += 1
+    return number
 
 
 def _run_command(
@@ -107,7 +128,7 @@ def _run_command(
     stdout: Any,
     stderr: Any,
     env: dict[str, str],
-) -> tuple[int, dict[str, float | None]]:
+) -> tuple[int, dict[str, float | None], int]:
     started = time.monotonic()
     proc = subprocess.Popen(
         command,
@@ -118,6 +139,7 @@ def _run_command(
         text=True,
         env=env,
     )
+    command_pid = int(proc.pid)
 
     user_seconds: float | None = None
     sys_seconds: float | None = None
@@ -139,7 +161,7 @@ def _run_command(
         "user_seconds": user_seconds,
         "sys_seconds": sys_seconds,
     }
-    return int(proc.returncode), timing
+    return int(proc.returncode), timing, command_pid
 
 
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
@@ -154,7 +176,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     manifest = _read_json(manifest_path)
     task = _task_definition(campaign_dir, manifest, task_name)
 
-    number = _next_attempt_number(campaign_dir, task_name)
+    number = _next_attempt_number(campaign_dir, manifest, task_name)
     attempt_dir = campaign_dir / f"{task_name}_attempt_{number:03d}"
     attempt_dir.mkdir(parents=False, exist_ok=False)
     stdout_path = attempt_dir / "stdout.log"
@@ -164,6 +186,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     command = task["command"]
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
+    worker_pid = os.getpid()
 
     launch_provenance = {
         "schema": 1,
@@ -190,7 +213,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "hostname": platform.node(),
             "platform": platform.platform(),
             "python": sys.version,
-            "pid": os.getpid(),
+            "pid": worker_pid,
+            "worker_pid": worker_pid,
         },
     }
     _write_json(provenance_path, launch_provenance)
@@ -212,6 +236,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "finished_at": finished,
             "returncode": 2,
             "command_returncode": None,
+            "worker_pid": worker_pid,
+            "command_pid": None,
             "command": command,
             "cwd": task.get("cwd"),
             "inputs": inputs,
@@ -233,6 +259,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "attempt": number,
         "state": "running",
         "started_at": started,
+        "worker_pid": worker_pid,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
@@ -256,7 +283,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
-        command_returncode, timing = _run_command(
+        command_returncode, timing, command_pid = _run_command(
             command,
             cwd=cwd,
             stdout=out,
@@ -290,6 +317,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "finished_at": finished,
         "returncode": returncode,
         "command_returncode": command_returncode,
+        "worker_pid": worker_pid,
+        "command_pid": command_pid,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,

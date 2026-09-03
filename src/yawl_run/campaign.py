@@ -169,16 +169,25 @@ def create_campaign(
     else:
         raise ValueError(f"unknown campaign backend: {selected_backend}")
 
+    source_bytes = spec.source.read_bytes()
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+
     root = logical_absolute(root)
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
     (campaign_dir / "state").mkdir()
+    (campaign_dir / "Yawlfile").write_bytes(source_bytes)
     launch_cwd = logical_cwd()
     created_at = _utc_now()
+    workflow_cwd = spec.source.parent
 
     frozen_tasks: dict[str, Any] = {}
     for task in spec.tasks:
-        task_cwd = logical_absolute(task.cwd, launch_cwd) if task.cwd else launch_cwd
+        task_cwd = (
+            logical_absolute(task.cwd, workflow_cwd)
+            if task.cwd
+            else workflow_cwd
+        )
         record = asdict(task)
         record["parents"] = list(task.parents)
         if not isinstance(task.command, str):
@@ -203,6 +212,11 @@ def create_campaign(
         "created_at": created_at,
         "yawl_version": __version__,
         "spec_source": str(spec.source),
+        "spec_archive": {
+            "path": "Yawlfile",
+            "source_name": spec.source.name,
+            "sha256": source_sha256,
+        },
         "task_order": [task.name for task in spec.tasks],
         "tasks": frozen_tasks,
         "creation": {
