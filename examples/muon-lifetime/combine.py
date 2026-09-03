@@ -6,6 +6,7 @@ from pathlib import Path
 
 import ROOT
 
+ROOT.gROOT.SetBatch(True)
 TRUTH_TAU_US = 2.1969811
 
 
@@ -54,10 +55,11 @@ def main():
     graph.Draw("AP")
     truth.Draw("SAME")
     combined.Draw("SAME")
-    legend = ROOT.TLegend(0.62, 0.72, 0.88, 0.88)
+    legend = ROOT.TLegend(0.56, 0.69, 0.88, 0.88)
     legend.AddEntry(graph, "per-run fit", "pe")
     legend.AddEntry(combined, "weighted mean", "l")
     legend.AddEntry(truth, "generation truth", "l")
+    legend.AddEntry(0, "#tau = {:.5f} #pm {:.5f} #mus".format(mean, mean_error), "")
     legend.Draw()
     canvas.SaveAs(args.plot)
     canvas.SaveAs(args.pdf)
