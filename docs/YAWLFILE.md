@@ -208,9 +208,13 @@ Named data references are shell-quoted when substituted into a `!` command.
 
 A trailing backslash continues a long logical line.
 
-## Pattern tasks: one input, one task, one output
+## Pattern tasks with `@each`
 
-`@each` maps a family of existing files into a family of tasks. Placeholders in braces are captured from the matching filename.
+`@each` creates a family of tasks by binding placeholders in the task name. There are two forms: discover bindings from files, or list the binding values explicitly. Both forms are expanded and frozen into ordinary task definitions when the campaign is created.
+
+### Discover values from matching files
+
+The existing file-pattern form maps a family of files into a family of tasks. Placeholders in braces are captured from the matching filename:
 
 ```text
 pedestal-{run}:
@@ -244,11 +248,43 @@ pedestal/run138.root
 pedestal/run142.root
 ```
 
-Each task receives one matched `raw` input and produces its own declared output.
+Each task receives one matched `raw` input and produces its own declared output. Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
 
-Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
+The input set is discovered and frozen when the campaign is created. A file-pattern `@each` that matches nothing is an error.
 
-The input set is discovered and frozen when the campaign is created. An `@each` pattern that matches nothing is an error.
+### Use an explicit value list
+
+When the scientific campaign defines the family independently of which files happen to be visible, list the placeholder values directly:
+
+```text
+convert-{run}:
+    @each run 296 298 299 300 301 302 303 304 305 306 307 308 309 310
+    @input raw /work/eic3/EPIC/TestBeam/LFHCAL/CERN/2026/2026_SPSH2/raw/Run{run}.h2g
+    @output root work/converted/rawHGCROC_{run}.root
+    ./Convert -i @input.raw -o @output.root
+```
+
+Here `run` names the placeholder in `convert-{run}`, and the remaining tokens are exactly the values to bind. No filesystem discovery is performed by the `@each` line. The values stay in the order written, and each expanded task gets its real inputs from the ordinary `@input` declarations.
+
+For example, the rule above creates `convert-296`, `convert-298`, and so on even if other `Run*.h2g` files are also present in the shared directory. Conversely, merely adding another matching file to that directory does not add it to this campaign.
+
+The explicit form currently binds one placeholder per `@each` line, so the name after `@each` must match the placeholder in the patterned task name. Values must be unique. A single value is valid.
+
+The important distinction is therefore:
+
+```text
+@each raw raw/Run{run}.h2g
+```
+
+means "discover the `run` bindings from matching files," while:
+
+```text
+@each run 296 298 300
+```
+
+means "use exactly these `run` bindings."
+
+After `yawl-run create`, both forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
 
 ## Patterned dependencies
 
