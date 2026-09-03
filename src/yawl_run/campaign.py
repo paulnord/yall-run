@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import sys
 import time
 from typing import Any
@@ -39,6 +40,67 @@ def _write_json(path: Path, obj: Any) -> None:
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _executable_provenance(
+    command: str | list[str],
+    cwd: Path,
+) -> dict[str, Any] | None:
+    # A shell command may contain pipelines, redirections, or several programs,
+    # so there is no single executable to identify reliably at campaign creation.
+    if isinstance(command, str) or not command:
+        return None
+
+    argv0 = str(command[0])
+    explicit_path = os.sep in argv0 or (os.altsep is not None and os.altsep in argv0)
+    if explicit_path:
+        path = logical_absolute(argv0, cwd)
+        resolution = "explicit"
+    else:
+        search_path = os.pathsep.join(
+            str(logical_absolute(entry or ".", cwd))
+            for entry in os.environ.get("PATH", os.defpath).split(os.pathsep)
+        )
+        found = shutil.which(argv0, path=search_path)
+        if found is None:
+            return {
+                "argv0": argv0,
+                "resolution": "PATH",
+                "resolved": False,
+            }
+        path = logical_absolute(found)
+        resolution = "PATH"
+
+    record: dict[str, Any] = {
+        "argv0": argv0,
+        "resolution": resolution,
+        "resolved": True,
+        "path": str(path),
+    }
+    try:
+        stat = path.stat()
+        if not path.is_file():
+            record.update({
+                "resolved": False,
+                "stat_error": "resolved executable is not a regular file",
+            })
+            return record
+        record.update({
+            "realpath": str(path.resolve(strict=True)),
+            "size_bytes": stat.st_size,
+            "sha256": _sha256_file(path),
+        })
+    except OSError as exc:
+        record.update({"resolved": False, "stat_error": str(exc)})
+    return record
 
 
 def _legacy_task_path(campaign_dir: Path, task_name: str) -> Path:
@@ -193,6 +255,9 @@ def create_campaign(
         if not isinstance(task.command, str):
             record["command"] = list(task.command)
         record["cwd"] = str(task_cwd)
+        executable = _executable_provenance(record["command"], task_cwd)
+        if executable is not None:
+            record["executable"] = executable
         record["inputs"] = [
             {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
             for item in task.inputs
