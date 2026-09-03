@@ -17,6 +17,22 @@ The point of the example is the workflow topology: patterned tasks inherit pairw
 
 All ROOT-dependent commands use `../mcmc/run-pyroot.sh`, so the example has the same host-PyROOT / EIC-container behavior as the MCMC example.
 
+## Example output
+
+Each `fit-{run}` task plots the decay-time histogram together with its exponential-plus-background fit. Here is run 00:
+
+![Muon lifetime fit for run 00](figures/run-00-fit.png)
+
+The other independently fitted runs are [01](figures/run-01-fit.png), [02](figures/run-02-fit.png), [03](figures/run-03-fit.png), [04](figures/run-04-fit.png), [05](figures/run-05-fit.png), [06](figures/run-06-fit.png), and [07](figures/run-07-fit.png).
+
+After all eight checks succeed, `combine` plots the per-run lifetime measurements, their inverse-variance weighted mean, and the known generation truth:
+
+![Combined muon lifetime measurements](figures/combined_lifetime.png)
+
+This makes the workflow structure visible in the scientific output: eight independent measurements are produced in parallel, then reduced to one combined result.
+
+## Run
+
 ```bash
 cd examples/muon-lifetime
 yawl-run validate

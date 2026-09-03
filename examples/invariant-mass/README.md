@@ -15,6 +15,22 @@ This is deliberately closer to ordinary HEP event processing than the numerical 
 
 The ROOT environment is exactly the MCMC launcher, `../mcmc/run-pyroot.sh`.
 
+## Example output
+
+Each `reconstruct-{run}` task builds and fits its own invariant-mass spectrum. Here is run 00:
+
+![Invariant-mass fit for run 00](figures/run-00-fit.png)
+
+The other independent run fits are [01](figures/run-01-fit.png), [02](figures/run-02-fit.png), [03](figures/run-03-fit.png), [04](figures/run-04-fit.png), and [05](figures/run-05-fit.png).
+
+The final `merge` task adds the six reconstructed histograms and fits the combined peak, with the generated `K_S^0` mass shown for reference:
+
+![Combined invariant-mass fit](figures/combined_fit.png)
+
+This is the familiar HEP production pattern in miniature: independent event processing produces per-run ROOT objects, followed by a merge and a higher-statistics final fit.
+
+## Run
+
 ```bash
 cd examples/invariant-mass
 yawl-run validate

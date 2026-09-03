@@ -15,6 +15,24 @@ This deliberately illustrates a different kind of parallelism from the MCMC exam
 
 All ROOT tasks use `../mcmc/run-pyroot.sh`.
 
+## Example output
+
+`prepare` first creates the synthetic dilepton-mass spectrum that every likelihood task reads:
+
+![Synthetic Z resonance spectrum](figures/raw_spectrum.png)
+
+After the 49 independent likelihood evaluations finish, `combine` identifies the best grid point and overlays that model on the same data:
+
+![Best scanned Z model overlaid on the data](figures/best_fit_overlay.png)
+
+The final reduction also assembles the full `2 Delta NLL` surface. The generation truth and the best scanned grid point are marked on the surface:
+
+![Z mass-width likelihood surface](figures/nll_surface.png)
+
+The three plots show the whole fan-out/fan-in story: one shared data set, many independent likelihood calculations, then one global result.
+
+## Run
+
 ```bash
 cd examples/z-scan
 yawl-run validate
