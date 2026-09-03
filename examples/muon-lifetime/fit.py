@@ -6,13 +6,15 @@ import sys
 
 import ROOT
 
+ROOT.gROOT.SetBatch(True)
+
 
 def main():
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: fit.py INPUT.root FIT.json FIT.root")
-    input_path, json_path, fit_root_path = map(Path, sys.argv[1:])
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    fit_root_path.parent.mkdir(parents=True, exist_ok=True)
+    if len(sys.argv) != 6:
+        raise SystemExit("usage: fit.py INPUT.root FIT.json FIT.root FIT.png FIT.pdf")
+    input_path, json_path, fit_root_path, plot_path, pdf_path = map(Path, sys.argv[1:])
+    for path in (json_path, fit_root_path, plot_path, pdf_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     source = ROOT.TFile.Open(str(input_path))
     if not source or source.IsZombie():
@@ -53,6 +55,23 @@ def main():
     model.Write()
     ROOT.TNamed("fit_json", json.dumps(payload, sort_keys=True)).Write()
     fit_file.Close()
+
+    canvas = ROOT.TCanvas("c_fit", "Muon lifetime fit", 900, 650)
+    ROOT.gStyle.SetOptStat(0)
+    hist.SetMarkerStyle(20)
+    hist.SetMarkerSize(0.75)
+    hist.Draw("E")
+    model.SetLineColor(ROOT.kBlue + 1)
+    model.SetLineWidth(2)
+    model.Draw("SAME")
+    legend = ROOT.TLegend(0.56, 0.72, 0.88, 0.88)
+    legend.AddEntry(hist, "synthetic decay times", "pe")
+    legend.AddEntry(model, "exponential + background", "l")
+    legend.AddEntry(0, "#tau = {:.4f} #pm {:.4f} #mus".format(tau, tau_error), "")
+    legend.Draw()
+    canvas.SaveAs(str(plot_path))
+    canvas.SaveAs(str(pdf_path))
+
     source.Close()
     print(json.dumps(payload, sort_keys=True))
 
