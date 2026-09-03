@@ -1,6 +1,6 @@
 # yawl-run examples
 
-These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler and MCMC examples add more realistic CPU-bound and statistical workloads.
+These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler and ROOT examples add more realistic CPU-bound and scientific workloads.
 
 | Example | Calculation | Workflow shape | Numerical character |
 | --- | --- | --- | --- |
@@ -11,6 +11,9 @@ These examples are small enough to inspect by hand but are chosen to exercise di
 | [`e`](e/) | $\sum 1/n!$ | parallel leaves and hierarchical reduction | very rapid convergence |
 | [`golomb`](golomb/) | optimal 11-mark Golomb ruler | parallel branch-and-bound with shared incumbent | CPU-bound search with uneven branches and cooperative pruning |
 | [`mcmc`](mcmc/) | Bayesian Langau fit with RooStats | eight independent chains, combine, diagnose, plot | stochastic ROOT workload with convergence diagnostics |
+| [`muon-lifetime`](muon-lifetime/) | stopped-muon lifetime | parallel three-stage run pipelines followed by fan-in | ROOT fits with per-run checks and weighted combination |
+| [`z-scan`](z-scan/) | Z mass/width likelihood scan | 49-way parameter sweep followed by reduction | RooFit likelihood grid over a synthetic resonance |
+| [`invariant-mass`](invariant-mass/) | $K_S^0\to\pi^+\pi^-$ reconstruction | independent ROOT-file pipelines followed by merge | four-vector event processing and peak fitting |
 
 ## pi: useful workflow, poor algorithm
 
@@ -62,10 +65,16 @@ The [`golomb`](golomb/) example searches for an optimal 11-mark ruler with all p
 
 The final reduction is intentionally stronger than merely selecting the shortest ruler found: it verifies that every shard exhausted the portion of its search space required to rule out anything shorter. This makes the example useful for distinguishing a successful empty branch from a failed task and for testing uneven, interacting parallel workloads.
 
-## PyROOT MCMC: independent stochastic chains
+## ROOT scientific workflows
 
-The [`mcmc`](mcmc/) example generates a synthetic Landau-convolved-with-Gaussian spectrum with RooFit and runs eight independent `RooStats::MCMCCalculator` chains. Parallelism comes from running statistically independent chains at the same time rather than trying to split one serial Metropolis-Hastings chain.
+The [`mcmc`](mcmc/) example generates a synthetic Landau-convolved-with-Gaussian spectrum with RooFit and runs eight independent `RooStats::MCMCCalculator` chains. Parallelism comes from statistically independent chains.
 
-The chain ROOT files are combined after burn-in, checked with split-$\hat R$, and turned into ROOT corner, trace, and posterior-predictive plots. This example also demonstrates reproducible random seeds and native scientific output files in a workflow whose computation is performed by an external analysis framework rather than by yawl-run itself.
+The [`muon-lifetime`](muon-lifetime/) example instead demonstrates *parallel pipelines*: independent run files each move through simulation, fitting, and validation before one weighted combination task.
+
+The [`z-scan`](z-scan/) example demonstrates a classic batch-farm *parameter sweep*. Forty-nine RooFit likelihood evaluations have identical dependencies and can run simultaneously before the likelihood surface is assembled.
+
+The [`invariant-mass`](invariant-mass/) example looks more like ordinary HEP production: several ROOT event files are generated and reconstructed independently, then their invariant-mass histograms are merged and fitted.
+
+All four ROOT examples share the MCMC example's `run-pyroot.sh` launcher, so they use local PyROOT when it is available and otherwise fall back to the EIC Apptainer/Singularity environment.
 
 Each example has its own README with run instructions and more detail about why that calculation or search is useful for testing yawl-run.
