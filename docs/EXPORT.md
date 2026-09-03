@@ -39,16 +39,15 @@ The input/output indexes preserve the order of repeated JSON entries and only ex
 
 The export is a derived view. Campaign JSON remains the canonical computational record; exporting does not modify campaign directories. Older campaigns can still be exported when newer provenance fields are absent; unavailable values are left `NULL`.
 
-## Useful SQLite queries
+## Useful SQLite commands
 
-The examples below use `sqlite3 -header -column yawl.sqlite` so results are easy to read.
+The examples below assume the database is named `yawl.sqlite`. Each block is a complete shell command that can be copied and run directly.
 
 ### List campaigns and backends
 
-```sql
-SELECT campaign_id, name, backend
-FROM campaign
-ORDER BY campaign_id;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select campaign_id,name,backend from campaign order by campaign_id;'
 ```
 
 Example output:
@@ -65,14 +64,13 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  root-muon-lifetime  local
 
 A `LEFT JOIN` keeps campaigns that have no attempt records, which is useful when looking at older campaign formats.
 
-```sql
-SELECT c.campaign_id,
-       c.backend,
-       COUNT(a.attempt) AS attempts
-FROM campaign AS c
-LEFT JOIN attempt AS a USING (campaign_id)
-GROUP BY c.campaign_id, c.backend
-ORDER BY c.campaign_id;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select c.campaign_id,c.backend,count(a.attempt) as attempts
+ from campaign c
+ left join attempt a using (campaign_id)
+ group by c.campaign_id,c.backend
+ order by c.campaign_id;'
 ```
 
 Example output:
@@ -89,16 +87,12 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  local    25
 
 This joins the post-execution attempt record to the launch provenance record using yawl's natural attempt key.
 
-```sql
-SELECT campaign_id,
-       task_name,
-       attempt,
-       state,
-       real_seconds,
-       hostname
-FROM attempt
-JOIN attempt_provenance USING (campaign_id, task_name, attempt)
-ORDER BY campaign_id, task_name, attempt;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select campaign_id,task_name,attempt,state,real_seconds,hostname
+ from attempt
+ join attempt_provenance using (campaign_id,task_name,attempt)
+ order by campaign_id,task_name,attempt;'
 ```
 
 Example output:
@@ -114,15 +108,12 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  simulate-00  1        completed  3
 
 ### Find failed attempts
 
-```sql
-SELECT campaign_id,
-       task_name,
-       attempt,
-       returncode,
-       failure_kind
-FROM attempt
-WHERE state = 'failed'
-ORDER BY campaign_id, task_name, attempt;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select campaign_id,task_name,attempt,returncode,failure_kind
+ from attempt
+ where state = "failed"
+ order by campaign_id,task_name,attempt;'
 ```
 
 A clean archive simply prints the column headings and no rows.
@@ -131,44 +122,38 @@ A clean archive simply prints the column headings and no rows.
 
 Older campaign records may predate frozen task commands. The exporter preserves that absence as `NULL` rather than inventing a value.
 
-```sql
-SELECT campaign_id, task_name
-FROM task
-WHERE command_json IS NULL
-ORDER BY campaign_id, task_name;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select campaign_id,task_name
+ from task
+ where command_json is null
+ order by campaign_id,task_name;'
 ```
 
 This is also a quick way to identify which campaigns were written with an older provenance schema.
 
 ### Trace the declared inputs for one task
 
-```sql
-SELECT role, path, creation_sha256
-FROM task_input
-WHERE campaign_id = ? AND task_name = ?
-ORDER BY input_index;
-```
+Replace the campaign and task names with the ones you want to inspect:
 
-For interactive SQLite use, replace the `?` placeholders with quoted values:
-
-```sql
-SELECT role, path, creation_sha256
-FROM task_input
-WHERE campaign_id = 'root-muon-lifetime-20260903T174249Z-8f3f7155'
-  AND task_name = 'fit-00'
-ORDER BY input_index;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select role,path,creation_sha256
+ from task_input
+ where campaign_id = "root-muon-lifetime-20260903T174249Z-8f3f7155"
+   and task_name = "fit-00"
+ order by input_index;'
 ```
 
 ### Find tasks whose executable hash differs across campaigns
 
-```sql
-SELECT task_name,
-       sha256,
-       COUNT(*) AS campaigns
-FROM task_executable
-WHERE sha256 IS NOT NULL
-GROUP BY task_name, sha256
-ORDER BY task_name, campaigns DESC;
+```bash
+sqlite3 -header -column yawl.sqlite \
+'select task_name,sha256,count(*) as campaigns
+ from task_executable
+ where sha256 is not null
+ group by task_name,sha256
+ order by task_name,campaigns desc;'
 ```
 
 Different hashes for the same task name are a useful signal when comparing campaigns that may have run different executable builds.
