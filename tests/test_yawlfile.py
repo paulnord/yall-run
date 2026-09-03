@@ -133,13 +133,12 @@ convert-{run}:
     assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == (
         "/shared/LFHCAL/raw/Run308.h2g"
     )
-    assert manifest["tasks"]["convert-308"]["outputs"][0]["path"] == (
-        "converted/rawHGCROC_308.root"
-    )
+    output_path = str(tmp_path / "converted" / "rawHGCROC_308.root")
+    assert manifest["tasks"]["convert-308"]["outputs"][0]["path"] == output_path
     assert manifest["tasks"]["convert-308"]["command"] == [
         "./Convert",
         "/shared/LFHCAL/raw/Run308.h2g",
-        "converted/rawHGCROC_308.root",
+        output_path,
     ]
 
 
