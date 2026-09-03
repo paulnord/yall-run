@@ -519,10 +519,9 @@ def write_sqlite(path: str | Path, rows: dict[str, list[dict[str, Any]]]) -> Pat
             if not rows[table]:
                 continue
             placeholders = ", ".join("?" for _ in columns)
-            update = ", ".join(f"{name}=excluded.{name}" for name in columns)
             sql = (
-                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders}) "
-                f"ON CONFLICT DO UPDATE SET {update}"
+                f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) "
+                f"VALUES ({placeholders})"
             )
             db.executemany(sql, [[row.get(name) for name in columns] for row in rows[table]])
         db.commit()
