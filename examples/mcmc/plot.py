@@ -41,10 +41,28 @@ def save_canvas(canvas: object, output_dir: Path, stem: str) -> None:
     canvas.SaveAs(str(output_dir / f"{stem}.png"))
 
 
+def load_truth_parameters(model_path: Path) -> dict[str, float]:
+    source = ROOT.TFile.Open(str(model_path), "READ")
+    if not source or source.IsZombie():
+        raise OSError(f"could not open {model_path}")
+    truth_named = source.Get("truth_json")
+    if not truth_named:
+        source.Close()
+        raise ValueError(f"{model_path}: truth metadata missing")
+    truth = json.loads(truth_named.GetTitle())
+    values = {
+        str(name): float(value)
+        for name, value in truth["parameters"].items()
+    }
+    source.Close()
+    return values
+
+
 def make_corner(
     tree: object,
     diagnostics: dict[str, object],
     parameters: list[str],
+    truth_values: dict[str, float],
     burn_in: int,
     output_dir: Path,
 ) -> None:
@@ -59,9 +77,14 @@ def make_corner(
         result = diagnostics["parameters"][name]
         low = float(result["mean"]) - 4.0 * float(result["sd"])
         high = float(result["mean"]) + 4.0 * float(result["sd"])
+        truth = truth_values.get(name)
+        if truth is not None:
+            low = min(low, truth)
+            high = max(high, truth)
         if not high > low:
             high = low + 1.0
-        ranges[name] = (low, high)
+        padding = 0.04 * (high - low)
+        ranges[name] = (low - padding, high + padding)
 
     for row_index, y_name in enumerate(parameters):
         for col_index, x_name in enumerate(parameters):
@@ -91,6 +114,17 @@ def make_corner(
                 hist.GetYaxis().SetTitle("posterior")
                 hist.Draw("HIST")
                 keepalive.append(hist)
+
+                truth = truth_values.get(x_name)
+                if truth is not None:
+                    truth_line = ROOT.TLine(
+                        truth, 0.0, truth, max(hist.GetMaximum(), 1.0e-12)
+                    )
+                    truth_line.SetLineColor(ROOT.kRed + 1)
+                    truth_line.SetLineStyle(2)
+                    truth_line.SetLineWidth(2)
+                    truth_line.Draw("SAME")
+                    keepalive.append(truth_line)
             elif row_index > col_index:
                 y_low, y_high = ranges[y_name]
                 hist = ROOT.TH2D(
@@ -116,6 +150,15 @@ def make_corner(
                 hist.GetYaxis().SetTitle(y_name)
                 hist.Draw("COL")
                 keepalive.append(hist)
+
+                truth_x = truth_values.get(x_name)
+                truth_y = truth_values.get(y_name)
+                if truth_x is not None and truth_y is not None:
+                    truth_marker = ROOT.TMarker(truth_x, truth_y, 29)
+                    truth_marker.SetMarkerColor(ROOT.kRed + 1)
+                    truth_marker.SetMarkerSize(1.8)
+                    truth_marker.Draw("SAME")
+                    keepalive.append(truth_marker)
             else:
                 pad.SetFrameFillColor(0)
                 latex = ROOT.TLatex()
@@ -135,6 +178,7 @@ def make_corner(
 def make_traces(
     tree: object,
     parameters: list[str],
+    truth_values: dict[str, float],
     burn_in: int,
     chain_count: int,
     output_dir: Path,
@@ -190,6 +234,22 @@ def make_traces(
             keepalive.append(graph)
 
         multigraph.Draw("A")
+        pad.Update()
+
+        truth = truth_values.get(parameter)
+        if truth is not None:
+            x_axis = multigraph.GetXaxis()
+            truth_line = ROOT.TLine(
+                x_axis.GetXmin(), truth, x_axis.GetXmax(), truth
+            )
+            truth_line.SetLineColor(ROOT.kRed + 1)
+            truth_line.SetLineStyle(2)
+            truth_line.SetLineWidth(2)
+            truth_line.Draw("SAME")
+            if pad_index == 1:
+                legend.AddEntry(truth_line, "generation truth", "l")
+            keepalive.append(truth_line)
+
         if pad_index == 1:
             legend.Draw()
             keepalive.append(legend)
@@ -369,6 +429,7 @@ def main() -> int:
     parameters = list(diagnostics["parameters"])
     burn_in = int(diagnostics["burn_in"])
     chain_count = int(diagnostics["chains"])
+    truth_values = load_truth_parameters(args.model)
 
     posterior = ROOT.TFile.Open(str(args.posterior), "READ")
     if not posterior or posterior.IsZombie():
@@ -377,8 +438,22 @@ def main() -> int:
     if not tree:
         raise ValueError(f"{args.posterior}: samples tree not found")
 
-    make_corner(tree, diagnostics, parameters, burn_in, args.output_dir)
-    make_traces(tree, parameters, burn_in, chain_count, args.output_dir)
+    make_corner(
+        tree,
+        diagnostics,
+        parameters,
+        truth_values,
+        burn_in,
+        args.output_dir,
+    )
+    make_traces(
+        tree,
+        parameters,
+        truth_values,
+        burn_in,
+        chain_count,
+        args.output_dir,
+    )
     make_predictive(
         args.model, tree, diagnostics, parameters, burn_in, args.output_dir
     )
