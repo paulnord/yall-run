@@ -184,13 +184,70 @@ coefficients above it.
 `traces` overlays all eight chains for each model parameter.
 
 `posterior_predictive` compares the synthetic data with the posterior median
-expected spectrum, a central 68% posterior parameter band, and the known
-generation truth.
+expected spectrum, a central 68% posterior expected-spectrum band, and the
+known generation truth. Its lower panel shows `data - posterior median` with
+Poisson counting errors; the blue band is the same posterior expected-spectrum
+range shifted into residual coordinates.
 
 The ROOT chain files store the Markov chain in compressed form. Rejected
 Metropolis proposals are represented by the `weight` of the retained state
 rather than by duplicating rows. `diagnose.py` expands those weights logically
 when calculating posterior summaries and split R-hat.
+
+## Example result
+
+The committed figures below come from the reproducible 2,500-event toy run.
+They illustrate the feature this example was built to expose: the observed
+Langau spectrum can be tightly constrained even when the decomposition of its
+width into Landau and Gaussian contributions is not.
+
+### Expected spectrum and residuals
+
+![Posterior expected spectrum and residuals](figures/posterior_predictive.png)
+
+The black points are the synthetic data with Poisson counting errors. The blue
+curve is the posterior median expected spectrum, the blue band is the central
+68% range of the expected spectrum over posterior parameter draws, and the red
+dashed curve is the generation truth.
+
+The residual panel uses `data - posterior median`. Around the peak, the observed
+bin-to-bin fluctuations are much larger than the width of the blue posterior
+expected-spectrum band. The red truth-minus-median curve stays close to zero.
+This is an important distinction: the blue band describes uncertainty in the
+underlying expected spectrum, not the Poisson scatter of a new observed
+histogram.
+
+### Parameter posterior
+
+![MCMC posterior corner plot](figures/corner.png)
+
+The red dashed lines and red stars mark the generating values
+`gauss_sigma = 4`, `landau_width = 8`, and `mpv = 80`. In this seeded run the
+strongest correlation is between Gaussian resolution and Landau width,
+`rho = -0.728`. The generating point lies within the posterior support but away
+from the highest-density part of that diagonal ridge. A larger Gaussian width
+can therefore be compensated by a smaller Landau width, with little visible
+change in the spectrum.
+
+The MP is much less entangled with the Landau width (`rho = -0.038` here), while
+its correlation with the Gaussian width is modest (`rho = +0.372`). The corner
+plot makes the low-statistics width degeneracy visible in a way a single
+best-fit result does not.
+
+### Chain traces
+
+![MCMC chain traces](figures/traces.png)
+
+All eight post-burn-in chains overlap and explore the same regions of parameter
+space. The red dashed lines show the generation truth. No chain remains visibly
+isolated from the others, so the displaced marginal peaks in the corner plot
+are not simply one chain getting stuck in a different mode. The numerical split
+R-hat values written by `diagnose.py` provide the corresponding quantitative
+convergence check.
+
+Taken together, the figures show why this low-statistics toy is useful for the
+LFHCal calibration problem: a fit can reproduce the measured spectrum very
+well while assigning noticeably different values to the two width components.
 
 ## Run
 
