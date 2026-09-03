@@ -3,7 +3,9 @@ backend local
 
 prepare:
     @output data z-work/data.root
-    bash ../mcmc/run-pyroot.sh python3 prepare.py @output.data
+    @output raw_png z-work/raw_spectrum.png
+    @output raw_pdf z-work/raw_spectrum.pdf
+    bash ../mcmc/run-pyroot.sh python3 prepare.py @output.data @output.raw_png @output.raw_pdf
 
 scan-{id}: prepare
     @each point grid/point-{id}.txt
@@ -14,9 +16,12 @@ scan-{id}: prepare
     bash ../mcmc/run-pyroot.sh python3 evaluate.py @input.data @input.point @output.result
 
 combine: scan-{id}
+    @input data z-work/data.root
     @input result z-work/point-{id}.json
     @output root z-work/scan.root
     @output summary z-work/summary.txt
-    @output plot z-work/scan.png
-    @output plot_pdf z-work/scan.pdf
-    bash ../mcmc/run-pyroot.sh python3 combine.py @input.result --root @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
+    @output nll_png z-work/nll_surface.png
+    @output nll_pdf z-work/nll_surface.pdf
+    @output fit_png z-work/best_fit_overlay.png
+    @output fit_pdf z-work/best_fit_overlay.pdf
+    bash ../mcmc/run-pyroot.sh python3 combine.py @input.result --data @input.data --root @output.root --summary @output.summary --plot @output.nll_png --pdf @output.nll_pdf --fit-plot @output.fit_png --fit-pdf @output.fit_pdf
