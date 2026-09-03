@@ -3,6 +3,8 @@ from pathlib import Path
 import shlex
 import sys
 
+import pytest
+
 from yawl_run.campaign import campaign_status, create_campaign, start_local
 from yawl_run.model import load_spec
 
@@ -136,3 +138,87 @@ def test_argv_command_file_and_launch_provenance(tmp_path):
     assert stdout[0] == "transform"
     assert stdout[1] == str(attempt_dir / "provenance.json")
     assert (tmp_path / "output.txt").read_text() == "HELLO\n"
+
+
+def test_missing_declared_input_fails_without_running_command(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "should_not_run.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[2]).write_text('ran\\n')\n"
+        "Path(sys.argv[3]).write_text('output\\n')\n"
+    )
+    spec_file = tmp_path / "Yawlfile"
+    spec_file.write_text(
+        "campaign missing-input\n"
+        "backend local\n\n"
+        "work:\n"
+        f"    %cwd {shlex.quote(str(tmp_path))}\n"
+        "    @input source missing.txt\n"
+        "    @output result output.txt\n"
+        f"    {shlex.quote(sys.executable)} {shlex.quote(str(script))} "
+        "@input.source marker.txt @output.result\n"
+    )
+
+    campaign_dir = create_campaign(
+        load_spec(spec_file), tmp_path / "campaigns", backend="local"
+    )
+    with pytest.raises(RuntimeError, match="local campaign failed"):
+        start_local(campaign_dir)
+
+    attempt_dir = campaign_dir / "work_attempt_001"
+    attempt = json.loads((attempt_dir / "attempt.json").read_text())
+    assert attempt["state"] == "failed"
+    assert attempt["returncode"] == 2
+    assert attempt["command_returncode"] is None
+    assert attempt["failure"] == {
+        "kind": "missing_inputs",
+        "paths": [str(tmp_path / "missing.txt")],
+    }
+    assert attempt["inputs"][0]["exists"] is False
+    assert attempt["outputs"][0]["exists"] is False
+    assert "declared input missing" in (attempt_dir / "stderr.log").read_text()
+    assert not (tmp_path / "marker.txt").exists()
+    assert not (tmp_path / "output.txt").exists()
+    assert campaign_status(campaign_dir)["counts"] == {"failed": 1}
+
+
+def test_missing_declared_output_fails_after_successful_command(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "runs_without_output.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[1]).write_text('ran\\n')\n"
+    )
+    spec_file = tmp_path / "Yawlfile"
+    spec_file.write_text(
+        "campaign missing-output\n"
+        "backend local\n\n"
+        "work:\n"
+        f"    %cwd {shlex.quote(str(tmp_path))}\n"
+        "    @output result output.txt\n"
+        f"    {shlex.quote(sys.executable)} {shlex.quote(str(script))} marker.txt\n"
+    )
+
+    campaign_dir = create_campaign(
+        load_spec(spec_file), tmp_path / "campaigns", backend="local"
+    )
+    with pytest.raises(RuntimeError, match="local campaign failed"):
+        start_local(campaign_dir)
+
+    attempt_dir = campaign_dir / "work_attempt_001"
+    attempt = json.loads((attempt_dir / "attempt.json").read_text())
+    assert attempt["state"] == "failed"
+    assert attempt["returncode"] == 1
+    assert attempt["command_returncode"] == 0
+    assert attempt["failure"] == {
+        "kind": "missing_outputs",
+        "paths": [str(tmp_path / "output.txt")],
+    }
+    assert attempt["outputs"][0]["exists"] is False
+    assert "declared output missing" in (attempt_dir / "stderr.log").read_text()
+    assert (tmp_path / "marker.txt").read_text() == "ran\n"
+    assert not (tmp_path / "output.txt").exists()
+    assert campaign_status(campaign_dir)["counts"] == {"failed": 1}
