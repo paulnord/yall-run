@@ -240,7 +240,7 @@ A trailing backslash continues a long logical line.
 
 ## Pattern tasks with `@each`
 
-`@each` creates a family of tasks by binding placeholders in the task name. There are two forms: discover bindings from files, or list the binding values explicitly. Both forms are expanded and frozen into ordinary task definitions when the campaign is created.
+`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, or supplied as correlated rows for several placeholders. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
 
 ### Discover values from matching files
 
@@ -298,23 +298,63 @@ Here `run` names the placeholder in `convert-{run}`, and the remaining tokens ar
 
 For example, the rule above creates `convert-296`, `convert-298`, and so on even if other `Run*.h2g` files are also present in the shared directory. Conversely, merely adding another matching file to that directory does not add it to this campaign.
 
-The explicit form currently binds one placeholder per `@each` line, so the name after `@each` must match the placeholder in the patterned task name. Values must be unique. A single value is valid.
+A single explicit value is valid. Explicit rows must be unique.
 
-The important distinction is therefore:
+### Use correlated values for several placeholders
+
+When several scientific values belong together, put the field names before `:` and provide the values row by row:
 
 ```text
-@each raw raw/Run{run}.h2g
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: \
+        296 298 1 \
+        299 300 1 \
+        301 302 1 \
+        303 304 1 \
+        328 329 2 \
+        330 331 2
+    @output pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    ./make-pedestal {ped} {run} {toa}
 ```
 
-means "discover the `run` bindings from matching files," while:
+The field names before `:` define the row width. The example therefore produces exactly these bindings:
+
+```text
+ped=296 run=298 toa=1
+ped=299 run=300 toa=1
+ped=301 run=302 toa=1
+ped=303 run=304 toa=1
+ped=328 run=329 toa=2
+ped=330 run=331 toa=2
+```
+
+Rows are correlated. Yawl does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names, the field names must match the placeholders in the task name, and duplicate rows are rejected clearly.
+
+A patterned child inherits the complete row normally:
+
+```text
+transfer-{ped}-{run}-{toa}: pedestal-{ped}-{run}-{toa}
+    @input pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    @input raw work/converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    ./transfer {ped} {run} {toa}
+```
+
+Thus `transfer-299-300-1` depends on `pedestal-299-300-1` and receives `ped=299`, `run=300`, and `toa=1` together. Correlation is preserved through dependency propagation.
+
+The colon is what makes the multi-field form unambiguous. Existing one-dimensional syntax remains unchanged:
 
 ```text
 @each run 296 298 300
 ```
 
-means "use exactly these `run` bindings."
+and existing file discovery remains unchanged:
 
-After `yawl-run create`, both forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
+```text
+@each raw raw/Run{run}.h2g
+```
+
+After `yawl-run create`, all forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
 
 ## Patterned dependencies
 
