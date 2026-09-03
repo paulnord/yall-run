@@ -14,7 +14,9 @@ fit-{run}: simulate-{run}
     @input data muon-work/run-{run}.root
     @output fit muon-work/run-{run}-fit.json
     @output fit_root muon-work/run-{run}-fit.root
-    bash ../mcmc/run-pyroot.sh python3 fit.py @input.data @output.fit @output.fit_root
+    @output fit_png muon-work/run-{run}-fit.png
+    @output fit_pdf muon-work/run-{run}-fit.pdf
+    bash ../mcmc/run-pyroot.sh python3 fit.py @input.data @output.fit @output.fit_root @output.fit_png @output.fit_pdf
 
 check-{run}: fit-{run}
     @input fit muon-work/run-{run}-fit.json
@@ -25,6 +27,6 @@ combine: check-{run}
     @input result muon-work/run-{run}-checked.json
     @output root muon-work/combined.root
     @output summary muon-work/summary.txt
-    @output plot muon-work/lifetime.png
-    @output plot_pdf muon-work/lifetime.pdf
+    @output plot muon-work/combined_lifetime.png
+    @output plot_pdf muon-work/combined_lifetime.pdf
     bash ../mcmc/run-pyroot.sh python3 combine.py @input.result --root @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
