@@ -138,7 +138,7 @@ convert-{run}:
     assert manifest["tasks"]["convert-308"]["command"] == [
         "./Convert",
         "/shared/LFHCAL/raw/Run308.h2g",
-        output_path,
+        "converted/rawHGCROC_308.root",
     ]
 
 
@@ -155,6 +155,79 @@ convert-{run}:
     )
     with pytest.raises(ValueError, match="explicit @each name must match"):
         load_spec(spec_file)
+
+
+def test_env_value_substitutes_into_paths_and_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    raw_root = tmp_path / "shared" / "raw"
+    monkeypatch.setenv("LFHCAL_RAW", str(raw_root))
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign env-path
+@env LFHCAL_RAW
+
+convert-{run}:
+    @each run 296 308
+    @input raw {LFHCAL_RAW}/Run{run}.h2g
+    @output root converted/rawHGCROC_{run}.root
+    ./Convert -c @input.raw -o @output.root
+""",
+    )
+    spec = load_spec(spec_file)
+    assert spec.set_values == (("LFHCAL_RAW", str(raw_root)),)
+    assert spec.tasks[1].inputs[0].path == str(raw_root / "Run308.h2g")
+    assert spec.tasks[1].command == (
+        "./Convert",
+        "-c",
+        str(raw_root / "Run308.h2g"),
+        "-o",
+        "converted/rawHGCROC_308.root",
+    )
+
+    campaign_dir = create_campaign(spec, tmp_path / "campaigns")
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["set_values"] == {"LFHCAL_RAW": str(raw_root)}
+    assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == str(
+        raw_root / "Run308.h2g"
+    )
+    assert "@env LFHCAL_RAW" in (campaign_dir / "Yawlfile").read_text()
+
+
+def test_env_requires_variable_to_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LFHCAL_RAW", raising=False)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign missing-env
+@env LFHCAL_RAW
+
+thing:
+    echo {LFHCAL_RAW}
+""",
+    )
+    with pytest.raises(ValueError, match="required environment variable 'LFHCAL_RAW' is not set"):
+        load_spec(spec_file)
+
+
+def test_set_behavior_is_unchanged_next_to_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DATA_ROOT", "/shared/data")
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign set-and-env
+@set dataset beam2026
+@env DATA_ROOT
+
+thing:
+    echo {dataset} {DATA_ROOT}
+""",
+    )
+    spec = load_spec(spec_file)
+    assert spec.tasks[0].command == ("echo", "beam2026", "/shared/data")
+    assert spec.set_values == (
+        ("dataset", "beam2026"),
+        ("DATA_ROOT", "/shared/data"),
+    )
 
 
 def test_patterned_child_inherits_family(tmp_path, monkeypatch):
