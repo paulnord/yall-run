@@ -56,10 +56,11 @@ def main() -> int:
 
     ROOT.RooRandom.randomGenerator().SetSeed(seed)
 
-    # SequentialProposal moves one coordinate at a time.  Its constructor
-    # parameter is a divisor, so 10 means a proposal sigma of 10% of that
-    # parameter's allowed range.
-    proposal = ROOT.RooStats.SequentialProposal(10.0)
+    # SequentialProposal moves one coordinate at a time. Its constructor
+    # parameter is a divisor. The LFHCal-like toy deliberately keeps broad
+    # priors, especially on MP, so use 30 here to keep proposal steps near the
+    # posterior scale rather than taking 10%-of-range jumps.
+    proposal = ROOT.RooStats.SequentialProposal(30.0)
     calculator = ROOT.RooStats.MCMCCalculator(data, model)
     calculator.SetConfidenceLevel(0.68)
     calculator.SetNumIters(iterations)
