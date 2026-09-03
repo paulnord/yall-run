@@ -295,6 +295,21 @@ YAWL_PROVENANCE
 
 Output data may live on another persistent filesystem; the campaign directory remains the provenance anchor.
 
+## Relational provenance export
+
+Campaign JSON remains the canonical record, but one or more campaign trees can be scraped into SQLite, a SQLite-compatible SQL dump, or normalized CSV tables for querying and reporting:
+
+```bash
+yawl-run export campaigns \
+    --sqlite yawl.sqlite \
+    --sql yawl.sql \
+    --csv-dir yawl-csv
+```
+
+The export uses yawl's natural campaign, task, and attempt identities as relational primary keys and does not modify the campaign directories. Older campaigns can be included even when newer provenance fields are absent; unavailable values are left null.
+
+See [docs/EXPORT.md](docs/EXPORT.md) for the table layout, primary keys, and example queries.
+
 ## Condor / DAGMan
 
 For a Condor Yawlfile:
