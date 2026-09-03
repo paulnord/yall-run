@@ -23,13 +23,20 @@ class _RefTemplate:
 
 
 @dataclass
+class _EachTemplate:
+    name: str
+    values: List[str]
+    pattern: bool
+
+
+@dataclass
 class _TaskTemplate:
     name: str
     parents: List[str]
     lineno: int
     inputs: List[_RefTemplate] = field(default_factory=list)
     outputs: List[_RefTemplate] = field(default_factory=list)
-    each: _RefTemplate | None = None
+    each: _EachTemplate | None = None
     retries: int = 0
     cpus: int | None = None
     memory: str | None = None
@@ -97,27 +104,35 @@ def _pattern_regex(pattern: str) -> re.Pattern[str]:
 
 def _each_bindings(template: _TaskTemplate) -> Tuple[Mapping[str, str], ...]:
     assert template.each is not None
-    if len(template.each.paths) != 1:
-        raise ValueError(f"line {template.lineno}: @each takes exactly one path pattern")
-    pattern = template.each.paths[0]
-    pattern_fields = set(_fields(pattern))
     name_fields = set(_fields(template.name))
     if not name_fields:
         raise ValueError(f"line {template.lineno}: @each requires placeholders in task name")
-    if pattern_fields != name_fields:
+
+    if template.each.pattern:
+        pattern = template.each.values[0]
+        pattern_fields = set(_fields(pattern))
+        if pattern_fields != name_fields:
+            raise ValueError(
+                f"line {template.lineno}: @each placeholders must match task name placeholders"
+            )
+        wildcard = _FIELD_RE.sub("*", pattern)
+        matcher = _pattern_regex(pattern)
+        values: List[Mapping[str, str]] = []
+        for matched in sorted(glob.glob(wildcard)):
+            found = matcher.match(matched)
+            if found:
+                values.append(found.groupdict())
+        if not values:
+            raise ValueError(f"line {template.lineno}: @each matched no files: {pattern}")
+        return tuple(values)
+
+    if name_fields != {template.each.name}:
         raise ValueError(
-            f"line {template.lineno}: @each placeholders must match task name placeholders"
+            f"line {template.lineno}: explicit @each name must match the task placeholder"
         )
-    wildcard = _FIELD_RE.sub("*", pattern)
-    matcher = _pattern_regex(pattern)
-    values: List[Mapping[str, str]] = []
-    for matched in sorted(glob.glob(wildcard)):
-        found = matcher.match(matched)
-        if found:
-            values.append(found.groupdict())
-    if not values:
-        raise ValueError(f"line {template.lineno}: @each matched no files: {pattern}")
-    return tuple(values)
+    if len(set(template.each.values)) != len(template.each.values):
+        raise ValueError(f"line {template.lineno}: explicit @each values must be unique")
+    return tuple({template.each.name: value} for value in template.each.values)
 
 
 def _compatible(candidate: Mapping[str, str], binding: Mapping[str, str]) -> bool:
@@ -164,7 +179,9 @@ def _apply_static_variables(
         for ref in task.outputs:
             ref.paths = [_replace_static(path, variables) for path in ref.paths]
         if task.each is not None:
-            task.each.paths = [_replace_static(path, variables) for path in task.each.paths]
+            task.each.values = [
+                _replace_static(value, variables) for value in task.each.values
+            ]
         if task.cwd is not None:
             task.cwd = _replace_static(task.cwd, variables)
         if task.command is not None:
@@ -250,7 +267,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
         if stripped.startswith("@"):
             parts = shlex.split(stripped)
             directive = parts[0][1:]
-            if directive in {"input", "output", "each"}:
+            if directive in {"input", "output"}:
                 if len(parts) < 3:
                     raise ValueError(
                         f"line {lineno}: @{directive} needs a role and path"
@@ -258,14 +275,22 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 ref = _RefTemplate(role=parts[1], paths=parts[2:])
                 if directive == "input":
                     current.inputs.append(ref)
-                elif directive == "output":
-                    current.outputs.append(ref)
                 else:
-                    if current.each is not None:
-                        raise ValueError(
-                            f"line {lineno}: only one @each is supported per task"
-                        )
-                    current.each = ref
+                    current.outputs.append(ref)
+                continue
+            if directive == "each":
+                if len(parts) < 3:
+                    raise ValueError(f"line {lineno}: @each needs a name and value or path")
+                if current.each is not None:
+                    raise ValueError(
+                        f"line {lineno}: only one @each is supported per task"
+                    )
+                values = parts[2:]
+                current.each = _EachTemplate(
+                    name=parts[1],
+                    values=values,
+                    pattern=len(values) == 1 and bool(_fields(values[0])),
+                )
                 continue
             raise ValueError(f"line {lineno}: unknown data directive @{directive}")
 
@@ -536,9 +561,9 @@ def _instantiate(
         parents.extend(_expand_parent(parent, binding, families))
 
     inputs: List[FileRef] = []
-    if template.each is not None:
-        each_path = _format(template.each.paths[0], binding, "@each path")
-        inputs.append(FileRef(path=each_path, role=template.each.role))
+    if template.each is not None and template.each.pattern:
+        each_path = _format(template.each.values[0], binding, "@each path")
+        inputs.append(FileRef(path=each_path, role=template.each.name))
     for ref in template.inputs:
         for path in ref.paths:
             for expanded in _expand_path_template(
