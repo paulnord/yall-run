@@ -41,6 +41,17 @@ def _parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan", help="show tasks described by a Yawlfile")
     _friendly_sections(plan)
     plan.add_argument("spec", nargs="?", default="Yawlfile")
+    plan_format = plan.add_mutually_exclusive_group()
+    plan_format.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the expanded plan as JSON",
+    )
+    plan_format.add_argument(
+        "--dot",
+        action="store_true",
+        help="emit the expanded dependency graph in Graphviz DOT format",
+    )
 
     create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
     _friendly_sections(create)
@@ -101,6 +112,49 @@ def _display_command(command: object) -> str:
     return shlex.join(str(item) for item in command)
 
 
+def _plan_json(spec: object) -> dict[str, object]:
+    tasks = []
+    for task in spec.tasks:
+        tasks.append({
+            "name": task.name,
+            "parents": list(task.parents),
+            "command": task.command if isinstance(task.command, str) else list(task.command),
+            "cwd": task.cwd,
+            "retries": task.retries,
+            "overwrite": task.overwrite,
+            "resources": {
+                "cpus": task.resources.cpus,
+                "memory": task.resources.memory,
+                "disk": task.resources.disk,
+            },
+            "inputs": [
+                {"role": ref.role, "path": ref.path}
+                for ref in task.inputs
+            ],
+            "outputs": [
+                {"role": ref.role, "path": ref.path}
+                for ref in task.outputs
+            ],
+        })
+    return {
+        "name": spec.name,
+        "backend": spec.backend,
+        "source": str(spec.source),
+        "tasks": tasks,
+    }
+
+
+def _plan_dot(spec: object) -> str:
+    lines = ["digraph yawl {", "  rankdir=LR;"]
+    for task in spec.tasks:
+        lines.append(f"  {json.dumps(task.name)};")
+    for task in spec.tasks:
+        for parent in task.parents:
+            lines.append(f"  {json.dumps(parent)} -> {json.dumps(task.name)};")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def _require_commands(*names: str) -> None:
     missing = [name for name in names if shutil.which(name) is None]
     if missing:
@@ -130,6 +184,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "plan":
             spec = load_spec(args.spec)
+            if args.json:
+                print(json.dumps(_plan_json(spec), indent=2, sort_keys=True))
+                return 0
+            if args.dot:
+                print(_plan_dot(spec))
+                return 0
             print(f"Campaign: {spec.name} (backend={spec.backend})")
             for task in spec.tasks:
                 extras = []
