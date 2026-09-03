@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import glob
+import os
 from pathlib import Path
 import re
 import shlex
@@ -162,6 +163,10 @@ def _positive_int(value: str, lineno: int, name: str) -> int:
     return result
 
 
+def _valid_variable_name(name: str) -> bool:
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
+
+
 def _replace_static(value: str, variables: Mapping[str, str]) -> str:
     return _FIELD_RE.sub(
         lambda match: variables.get(match.group(1), match.group(0)), value
@@ -225,9 +230,22 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 if len(parts) != 3:
                     raise ValueError(f"line {lineno}: @set needs a name and value")
                 name = parts[1]
-                if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+                if not _valid_variable_name(name):
                     raise ValueError(f"line {lineno}: invalid @set name {name!r}")
                 variables[name] = parts[2]
+                continue
+            if stripped.startswith("@env "):
+                parts = shlex.split(stripped)
+                if len(parts) != 2:
+                    raise ValueError(f"line {lineno}: @env needs exactly one variable name")
+                name = parts[1]
+                if not _valid_variable_name(name):
+                    raise ValueError(f"line {lineno}: invalid @env name {name!r}")
+                if name not in os.environ:
+                    raise ValueError(
+                        f"line {lineno}: required environment variable {name!r} is not set"
+                    )
+                variables[name] = os.environ[name]
                 continue
             if stripped.startswith("%"):
                 parts = shlex.split(stripped)
