@@ -486,22 +486,14 @@ def _timing_suffix(timing: dict[str, float]) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
-def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
-    campaign_dir, manifest = campaign_manifest(campaign_dir)
-    if manifest.get("backend", "local") != "local":
-        raise ValueError(f"campaign backend is not local: {campaign_dir}")
-
+def _local_jobs(manifest: dict[str, Any]) -> int:
     jobs = int(manifest.get("execution", {}).get("local", {}).get("jobs", 1))
     if jobs < 1:
         raise ValueError("invalid local concurrency stored in campaign")
+    return jobs
 
-    prepare_campaign_start(campaign_dir, overwrite=overwrite)
-    try:
-        begin_campaign(campaign_dir, overwrite=overwrite)
-    except Exception:
-        cancel_prepared_start(campaign_dir)
-        raise
 
+def _print_local_header(jobs: int, *, mode: str) -> None:
     logical_cpus, physical_cores, threads_per_core = _cpu_topology()
     load1 = _load_one()
     geek = [
@@ -510,6 +502,8 @@ def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
         f"jobs={jobs}",
         f"logical_cpus={logical_cpus if logical_cpus is not None else 'unknown'}",
     ]
+    if mode != "start":
+        geek.append(f"mode={mode}")
     if physical_cores is not None:
         geek.append(f"physical_cores={physical_cores}")
     if threads_per_core is not None:
@@ -524,10 +518,24 @@ def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
             flush=True,
         )
 
+
+def _run_local_graph(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    mode: str,
+) -> Path:
+    jobs = _local_jobs(manifest)
+    _print_local_header(jobs, mode=mode)
+
     task_names = _task_names(manifest)
-    remaining = set(task_names)
+    reconciled = {
+        name
+        for name in task_names
+        if _task_state(campaign_dir, manifest, name).get("state") == "completed"
+    }
+    remaining = set(task_names) - reconciled
     running: dict[Future[int], tuple[str, float]] = {}
-    reconciled: set[str] = set()
 
     with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="yawl") as pool:
         while remaining or running:
@@ -605,6 +613,97 @@ def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
             f"local campaign failed: completed={completed} failed={failed} blocked={blocked}"
         )
     return campaign_dir
+
+
+def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if manifest.get("backend", "local") != "local":
+        raise ValueError(f"campaign backend is not local: {campaign_dir}")
+
+    _local_jobs(manifest)
+    prepare_campaign_start(campaign_dir, overwrite=overwrite)
+    try:
+        begin_campaign(campaign_dir, overwrite=overwrite)
+    except Exception:
+        cancel_prepared_start(campaign_dir)
+        raise
+
+    return _run_local_graph(campaign_dir, manifest, mode="start")
+
+
+def retry_task(campaign_dir: str | Path, task_name: str) -> int:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if manifest.get("backend", "local") != "local":
+        raise ValueError(
+            "retry currently supports local campaigns only; queued retries must remain scheduler-managed"
+        )
+    if not (campaign_dir / "start.json").is_file():
+        raise ValueError("cannot retry a task before the campaign has been started")
+    _task_definition(campaign_dir, manifest, task_name)
+    state = _task_state(campaign_dir, manifest, task_name)
+    if state.get("state") != "failed":
+        raise ValueError(
+            f"task {task_name!r} is {state.get('state', 'unknown')}, not failed"
+        )
+    return run_task(campaign_dir, task_name)
+
+
+def _next_resume_path(campaign_dir: Path) -> Path:
+    root = campaign_dir / "resumes"
+    number = 1
+    while (root / f"resume_{number:03d}.json").exists():
+        number += 1
+    return root / f"resume_{number:03d}.json"
+
+
+def resume_local(campaign_dir: str | Path) -> Path:
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if manifest.get("backend", "local") != "local":
+        raise ValueError("resume currently supports local campaigns only")
+    if not (campaign_dir / "start.json").is_file():
+        raise ValueError("cannot resume a campaign that has not been started")
+
+    running = [
+        name
+        for name in _task_names(manifest)
+        if _task_state(campaign_dir, manifest, name).get("state") == "running"
+    ]
+    if running:
+        shown = ", ".join(running[:3])
+        if len(running) > 3:
+            shown += ", ..."
+        raise ValueError(
+            f"cannot resume while tasks are recorded as running ({shown}); reconcile them first"
+        )
+
+    initial = campaign_status(campaign_dir)
+    for name in _task_names(manifest):
+        state = _task_state(campaign_dir, manifest, name)
+        if state.get("state") in {"failed", "blocked"}:
+            state["state"] = "pending"
+            _write_task_state(campaign_dir, manifest, name, state)
+
+    resume_path = _next_resume_path(campaign_dir)
+    record = {
+        "started_at": _utc_now(),
+        "backend": "local",
+        "initial_counts": initial["counts"],
+    }
+    _write_json(resume_path, record)
+    try:
+        result = _run_local_graph(campaign_dir, manifest, mode="resume")
+    except Exception:
+        record["finished_at"] = _utc_now()
+        record["result"] = "failed"
+        record["final_counts"] = campaign_status(campaign_dir)["counts"]
+        _write_json(resume_path, record)
+        raise
+
+    record["finished_at"] = _utc_now()
+    record["result"] = "completed"
+    record["final_counts"] = campaign_status(campaign_dir)["counts"]
+    _write_json(resume_path, record)
+    return result
 
 
 def campaign_status(campaign_dir: str | Path) -> dict[str, Any]:

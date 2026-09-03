@@ -6,7 +6,14 @@ import shlex
 import shutil
 import sys
 
-from .campaign import campaign_manifest, campaign_status, create_campaign, start_local
+from .campaign import (
+    campaign_manifest,
+    campaign_status,
+    create_campaign,
+    resume_local,
+    retry_task,
+    start_local,
+)
 from .condor_backend import condor_queue_status, render_condor, submit_rendered
 from .model import load_spec
 from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
@@ -27,7 +34,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Yet Another Workflow Layer. Y'all run!",
     )
     _friendly_sections(parser, "commands")
-    visible_commands = "{validate,plan,create,start,status,retry}"
+    visible_commands = "{validate,plan,create,start,resume,status,retry}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -83,12 +90,16 @@ def _parser() -> argparse.ArgumentParser:
         help="permit all tasks in this start to use pre-existing declared outputs",
     )
 
+    resume = sub.add_parser("resume", help="continue one started local campaign")
+    _friendly_sections(resume)
+    resume.add_argument("campaign_dir")
+
     status = sub.add_parser("status", help="show campaign status")
     _friendly_sections(status)
     status.add_argument("campaign_dir")
     status.add_argument("--json", action="store_true")
 
-    retry = sub.add_parser("retry", help="run another attempt of one task")
+    retry = sub.add_parser("retry", help="run one more attempt of a failed local task")
     _friendly_sections(retry)
     retry.add_argument("campaign_dir")
     retry.add_argument("task")
@@ -253,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"unknown campaign backend: {backend}")
             return 0
 
+        if args.command == "resume":
+            resume_local(args.campaign_dir)
+            return 0
+
         if args.command == "status":
             data = campaign_status(args.campaign_dir)
             backend = data["backend"]
@@ -294,7 +309,10 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  scheduler: {backend}; nodes: {node_summary}")
             return 0
 
-        if args.command in {"retry", "worker"}:
+        if args.command == "retry":
+            return retry_task(args.campaign_dir, args.task)
+
+        if args.command == "worker":
             return run_task(args.campaign_dir, args.task)
 
     except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
