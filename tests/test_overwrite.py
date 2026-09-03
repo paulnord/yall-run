@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 import shlex
@@ -117,6 +118,22 @@ def test_start_overwrite_allows_all_existing_outputs_and_is_recorded(tmp_path):
     )
 
     assert cli_main(["start", "--overwrite", str(campaign_dir)]) == 0
+    assert result.read_text() == "new\n"
+    start = json.loads((campaign_dir / "start.json").read_text())
+    assert start["overwrite"] is True
+
+
+def test_start_overwrite_accepts_campaign_path_from_stdin(tmp_path, monkeypatch):
+    yawlfile = _single_output_workflow(tmp_path)
+    result = tmp_path / "result.txt"
+    result.write_text("old\n")
+    campaign_dir = create_campaign(
+        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+    )
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(f"{campaign_dir}\n"))
+    assert cli_main(["start", "--overwrite"]) == 0
+
     assert result.read_text() == "new\n"
     start = json.loads((campaign_dir / "start.json").read_text())
     assert start["overwrite"] is True
