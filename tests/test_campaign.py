@@ -68,6 +68,7 @@ def test_yawlfile_relative_paths_are_anchored_to_source_directory(
     workflow.mkdir()
     caller.mkdir()
     (workflow / "inputs").mkdir()
+    (workflow / "outputs").mkdir()
     (workflow / "inputs" / "run-137.dat").write_text("data\n")
     script = workflow / "copy.py"
     script.write_text(
