@@ -44,6 +44,10 @@ def _inspect_file(ref: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _missing_paths(records: list[dict[str, Any]]) -> list[str]:
+    return [str(record["path"]) for record in records if not record.get("exists", False)]
+
+
 def _legacy_task_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "tasks" / f"{task_name}.json"
 
@@ -191,6 +195,39 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     }
     _write_json(provenance_path, launch_provenance)
 
+    missing_inputs = _missing_paths(inputs)
+    if missing_inputs:
+        stdout_path.touch()
+        stderr_path.write_text(
+            "yawl-worker: declared input missing: " + ", ".join(missing_inputs) + "\n"
+        )
+        finished = _utc_now()
+        outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
+        failure = {"kind": "missing_inputs", "paths": missing_inputs}
+        _write_json(attempt_dir / "attempt.json", {
+            "task": task_name,
+            "attempt": number,
+            "state": "failed",
+            "started_at": started,
+            "finished_at": finished,
+            "returncode": 2,
+            "command_returncode": None,
+            "command": command,
+            "cwd": task.get("cwd"),
+            "inputs": inputs,
+            "outputs": outputs,
+            "failure": failure,
+            "provenance": str(provenance_path),
+            "stdout": str(stdout_path),
+            "stderr": str(stderr_path),
+        })
+        _write_task_state(campaign_dir, manifest, task_name, {
+            "state": "failed",
+            "attempts": number,
+            "last_returncode": 2,
+        })
+        return 2
+
     _write_json(attempt_dir / "attempt.json", {
         "task": task_name,
         "attempt": number,
@@ -219,7 +256,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
-        returncode, timing = _run_command(
+        command_returncode, timing = _run_command(
             command,
             cwd=cwd,
             stdout=out,
@@ -227,16 +264,32 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             env=env,
         )
 
-    state = "completed" if returncode == 0 else "failed"
     finished = _utc_now()
     outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
-    _write_json(attempt_dir / "attempt.json", {
+    missing_outputs = _missing_paths(outputs)
+    returncode = command_returncode
+    failure: dict[str, Any] | None = None
+    if command_returncode == 0 and missing_outputs:
+        returncode = 1
+        failure = {"kind": "missing_outputs", "paths": missing_outputs}
+        with stderr_path.open("a") as err:
+            err.write(
+                "yawl-worker: declared output missing: "
+                + ", ".join(missing_outputs)
+                + "\n"
+            )
+    elif command_returncode != 0:
+        failure = {"kind": "command_failed", "returncode": command_returncode}
+
+    state = "completed" if returncode == 0 else "failed"
+    attempt_record: dict[str, Any] = {
         "task": task_name,
         "attempt": number,
         "state": state,
         "started_at": started,
         "finished_at": finished,
         "returncode": returncode,
+        "command_returncode": command_returncode,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
@@ -245,7 +298,10 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "provenance": str(provenance_path),
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
-    })
+    }
+    if failure is not None:
+        attempt_record["failure"] = failure
+    _write_json(attempt_dir / "attempt.json", attempt_record)
     _write_task_state(campaign_dir, manifest, task_name, {
         "state": state,
         "attempts": number,
