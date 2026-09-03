@@ -53,6 +53,7 @@ class CampaignSpec:
     source: Path
     backend: str = "local"
     condor: CondorSpec = CondorSpec()
+    set_values: Tuple[Tuple[str, str], ...] = ()
 
 
 def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None:
