@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from yawl_run.campaign import create_campaign
 from yawl_run.model import load_spec
 
 
@@ -74,6 +76,86 @@ pedestal-{run}:
         "-o",
         "pedestal/2026_PST10_pedestal_138.root",
     )
+
+
+def test_each_explicit_values_select_exact_family(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign selected-runs
+
+convert-{run}:
+    @each run 296 298 299 300
+    @input raw /shared/LFHCAL/raw/Run{run}.h2g
+    @output root work/converted/rawHGCROC_{run}.root
+    ./Convert -i @input.raw -o @output.root
+""",
+    )
+    spec = load_spec(spec_file)
+    assert [task.name for task in spec.tasks] == [
+        "convert-296",
+        "convert-298",
+        "convert-299",
+        "convert-300",
+    ]
+    assert [task.inputs[0].path for task in spec.tasks] == [
+        "/shared/LFHCAL/raw/Run296.h2g",
+        "/shared/LFHCAL/raw/Run298.h2g",
+        "/shared/LFHCAL/raw/Run299.h2g",
+        "/shared/LFHCAL/raw/Run300.h2g",
+    ]
+    assert spec.tasks[1].outputs[0].path == "work/converted/rawHGCROC_298.root"
+    assert spec.tasks[1].command == (
+        "./Convert",
+        "-i",
+        "/shared/LFHCAL/raw/Run298.h2g",
+        "-o",
+        "work/converted/rawHGCROC_298.root",
+    )
+
+
+def test_each_explicit_values_are_frozen_in_campaign_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign selected-runs
+
+convert-{run}:
+    @each run 296 308
+    @input raw /shared/LFHCAL/raw/Run{run}.h2g
+    @output root converted/rawHGCROC_{run}.root
+    ./Convert @input.raw @output.root
+""",
+    )
+    campaign_dir = create_campaign(load_spec(spec_file), tmp_path / "campaigns")
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["task_order"] == ["convert-296", "convert-308"]
+    assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == (
+        "/shared/LFHCAL/raw/Run308.h2g"
+    )
+    assert manifest["tasks"]["convert-308"]["outputs"][0]["path"] == (
+        "converted/rawHGCROC_308.root"
+    )
+    assert manifest["tasks"]["convert-308"]["command"] == [
+        "./Convert",
+        "/shared/LFHCAL/raw/Run308.h2g",
+        "converted/rawHGCROC_308.root",
+    ]
+
+
+def test_each_explicit_name_must_match_task_placeholder(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign bad-each
+
+convert-{run}:
+    @each sample 296 298
+    echo {run}
+""",
+    )
+    with pytest.raises(ValueError, match="explicit @each name must match"):
+        load_spec(spec_file)
 
 
 def test_patterned_child_inherits_family(tmp_path, monkeypatch):
