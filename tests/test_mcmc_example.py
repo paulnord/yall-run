@@ -62,6 +62,16 @@ def test_mcmc_spectrum_plot_uses_counting_errors_not_weight_errors():
     assert '"synthetic data (Poisson errors)"' in plot
 
 
+def test_mcmc_parameter_plots_show_generation_truth():
+    root = Path(__file__).resolve().parents[1]
+    plot = (root / "examples" / "mcmc" / "plot.py").read_text()
+
+    assert "load_truth_parameters(args.model)" in plot
+    assert "truth_marker = ROOT.TMarker(truth_x, truth_y, 29)" in plot
+    assert "truth_line = ROOT.TLine(" in plot
+    assert 'legend.AddEntry(truth_line, "generation truth", "l")' in plot
+
+
 def test_mcmc_pyroot_launcher_shell_syntax():
     root = Path(__file__).resolve().parents[1]
     launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
