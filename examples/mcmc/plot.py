@@ -356,35 +356,90 @@ def make_predictive(
     band = ROOT.TGraphAsymmErrors(nbins)
     median = ROOT.TGraph(nbins)
     truth_curve = ROOT.TGraph(nbins)
+    residual_band = ROOT.TGraphAsymmErrors(nbins)
+    residual_truth = ROOT.TGraph(nbins)
+    residual_hist = ROOT.TH1D(
+        "posterior_expected_residuals",
+        "",
+        nbins,
+        x_min,
+        x_max,
+    )
+    residual_hist.SetDirectory(0)
 
     truth_values = truth["parameters"]
     for name, value in truth_values.items():
         workspace.var(name).setVal(float(value))
 
+    residual_extent = 0.0
     for bin_index in range(nbins):
         center = x_min + (bin_index + 0.5) * width
         values = predictions[bin_index]
         low = quantile(values, 0.16)
         mid = quantile(values, 0.50)
         high = quantile(values, 0.84)
+
         band.SetPoint(bin_index, center, mid)
         band.SetPointError(
             bin_index, width / 2.0, width / 2.0, mid - low, high - mid
         )
         median.SetPoint(bin_index, center, mid)
 
+        # Put the same posterior-expected interval into residual coordinates.
+        # The residual is defined relative to the posterior median, so the
+        # expected-spectrum band is centered on zero.
+        residual_band.SetPoint(bin_index, center, 0.0)
+        residual_band.SetPointError(
+            bin_index, width / 2.0, width / 2.0, mid - low, high - mid
+        )
+
         x.setVal(center)
         expected_truth = float(pdf.getVal(observables)) * width * event_count
         truth_curve.SetPoint(bin_index, center, expected_truth)
+        residual_truth.SetPoint(bin_index, center, expected_truth - mid)
+
+        bin_number = bin_index + 1
+        count = float(data_hist.GetBinContent(bin_number))
+        count_error = float(data_hist.GetBinError(bin_number))
+        residual = count - mid
+        residual_hist.SetBinContent(bin_number, residual)
+        residual_hist.SetBinError(bin_number, count_error)
+
+        residual_extent = max(
+            residual_extent,
+            abs(residual) + count_error,
+            mid - low,
+            high - mid,
+            abs(expected_truth - mid),
+        )
 
     canvas = ROOT.TCanvas(
-        "predictive_canvas", "Langau posterior expected spectrum", 1000, 700
+        "predictive_canvas", "Langau posterior expected spectrum", 1000, 850
     )
-    canvas.SetLeftMargin(0.11)
-    canvas.SetRightMargin(0.04)
+    top_pad = ROOT.TPad("predictive_top", "spectrum", 0.0, 0.30, 1.0, 1.0)
+    residual_pad = ROOT.TPad(
+        "predictive_residual", "residuals", 0.0, 0.0, 1.0, 0.30
+    )
+    top_pad.SetLeftMargin(0.11)
+    top_pad.SetRightMargin(0.04)
+    top_pad.SetTopMargin(0.08)
+    top_pad.SetBottomMargin(0.02)
+    residual_pad.SetLeftMargin(0.11)
+    residual_pad.SetRightMargin(0.04)
+    residual_pad.SetTopMargin(0.02)
+    residual_pad.SetBottomMargin(0.30)
+    top_pad.Draw()
+    residual_pad.Draw()
+
+    top_pad.cd()
     data_hist.SetMinimum(0.0)
     data_hist.SetMarkerStyle(20)
     data_hist.SetMarkerSize(0.8)
+    data_hist.SetMarkerColor(ROOT.kBlack)
+    data_hist.SetLineColor(ROOT.kBlack)
+    data_hist.GetXaxis().SetTitle("")
+    data_hist.GetXaxis().SetLabelSize(0.0)
+    data_hist.GetYaxis().SetTitle("events / bin")
     data_hist.Draw("E1")
 
     band.SetFillColorAlpha(ROOT.kAzure - 9, 0.65)
@@ -409,6 +464,40 @@ def make_predictive(
     legend.AddEntry(truth_curve, "generation truth", "l")
     legend.Draw()
 
+    residual_pad.cd()
+    residual_limit = max(1.0, residual_extent) * 1.15
+    residual_hist.SetMinimum(-residual_limit)
+    residual_hist.SetMaximum(residual_limit)
+    residual_hist.SetMarkerStyle(20)
+    residual_hist.SetMarkerSize(0.7)
+    residual_hist.SetMarkerColor(ROOT.kBlack)
+    residual_hist.SetLineColor(ROOT.kBlack)
+    residual_hist.GetXaxis().SetTitle("x [ADC]")
+    residual_hist.GetYaxis().SetTitle("difference [events / bin]")
+    residual_hist.GetXaxis().SetTitleSize(0.11)
+    residual_hist.GetXaxis().SetLabelSize(0.09)
+    residual_hist.GetXaxis().SetTitleOffset(1.05)
+    residual_hist.GetYaxis().SetTitleSize(0.09)
+    residual_hist.GetYaxis().SetLabelSize(0.08)
+    residual_hist.GetYaxis().SetTitleOffset(0.55)
+    residual_hist.GetYaxis().SetNdivisions(505)
+    residual_hist.Draw("E1")
+
+    residual_band.SetFillColorAlpha(ROOT.kAzure - 9, 0.65)
+    residual_band.SetLineColor(ROOT.kAzure + 2)
+    residual_band.SetLineWidth(1)
+    residual_band.Draw("3 SAME")
+    residual_truth.SetLineColor(ROOT.kRed + 1)
+    residual_truth.SetLineStyle(2)
+    residual_truth.SetLineWidth(2)
+    residual_truth.Draw("L SAME")
+    zero_line = ROOT.TLine(x_min, 0.0, x_max, 0.0)
+    zero_line.SetLineColor(ROOT.kGray + 2)
+    zero_line.SetLineStyle(2)
+    zero_line.Draw("SAME")
+    residual_hist.Draw("E1 SAME")
+
+    canvas.cd()
     save_canvas(canvas, output_dir, "posterior_predictive")
     source.Close()
 
