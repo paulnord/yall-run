@@ -1,0 +1,24 @@
+campaign root-invariant-mass
+backend local
+
+generate-{run}:
+    @each config runs/run-{run}.txt
+    @output events mass-work/run-{run}.root
+    %cpus 1
+    %memory 512MB
+    bash ../mcmc/run-pyroot.sh python3 generate.py @input.config @output.events
+
+reconstruct-{run}: generate-{run}
+    @input events mass-work/run-{run}.root
+    @output result mass-work/run-{run}-fit.json
+    @output hist mass-work/run-{run}-mass.root
+    bash ../mcmc/run-pyroot.sh python3 reconstruct.py @input.events @output.result @output.hist
+
+merge: reconstruct-{run}
+    @input result mass-work/run-{run}-fit.json
+    @input hist mass-work/run-{run}-mass.root
+    @output root mass-work/combined.root
+    @output summary mass-work/summary.txt
+    @output plot mass-work/invariant-mass.png
+    @output plot_pdf mass-work/invariant-mass.pdf
+    bash ../mcmc/run-pyroot.sh python3 merge.py --results @input.result --roots @input.hist --output @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
