@@ -1,0 +1,22 @@
+campaign root-z-likelihood-scan
+backend local
+
+prepare:
+    @output data z-work/data.root
+    bash ../mcmc/run-pyroot.sh python3 prepare.py @output.data
+
+scan-{id}: prepare
+    @each point grid/point-{id}.txt
+    @input data z-work/data.root
+    @output result z-work/point-{id}.json
+    %cpus 1
+    %memory 1GB
+    bash ../mcmc/run-pyroot.sh python3 evaluate.py @input.data @input.point @output.result
+
+combine: scan-{id}
+    @input result z-work/point-{id}.json
+    @output root z-work/scan.root
+    @output summary z-work/summary.txt
+    @output plot z-work/scan.png
+    @output plot_pdf z-work/scan.pdf
+    bash ../mcmc/run-pyroot.sh python3 combine.py @input.result --root @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
