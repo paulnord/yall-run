@@ -105,6 +105,36 @@ convert:
 
 Known `{name}` placeholders from `@set` are substituted before task patterns are expanded.
 
+### Import a named value from the environment
+
+Use `@env NAME` when a site-specific value should come from the environment that runs `yawl-run validate`, `plan`, or `create`:
+
+```text
+@env LFHCAL_RAW
+
+convert-{run}:
+    @each run 296 298 300
+    @input raw {LFHCAL_RAW}/Run{run}.h2g
+    @output root work/rawHGCROC_{run}.root
+    ./Convert -c @input.raw -o @output.root
+```
+
+For example, a STAR login shell could provide:
+
+```csh
+setenv LFHCAL_RAW /work/eic3/EPIC/TestBeam/LFHCAL/CERN/2026/2026_SPSH2/raw
+```
+
+`@env LFHCAL_RAW` reads that value while the Yawlfile is parsed. The value participates in the same `{LFHCAL_RAW}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
+
+This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yawl-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `LFHCAL_RAW` later does not change that campaign.
+
+The archived `Yawlfile` remains byte-for-byte the source file and still contains the literal `@env LFHCAL_RAW` line.
+
+A required imported variable must exist. If it is absent, `validate`, `plan`, and `create` fail with a message naming the missing environment variable; yawl-run does not substitute an empty string.
+
+`@set` behavior is unchanged. `@set` and `@env` share the same placeholder namespace, so normal source order determines the value if the same name is deliberately declared more than once.
+
 ## Execution policy: `%`
 
 `%` directives describe how a task should run rather than what data it consumes.
@@ -138,8 +168,8 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 ```text
 analysis:
     %overwrite
-    @output root result.root
-    ./Analyze -o @output.root
+    @output root results/run308.root
+    ./Analyze ...
 ```
 
 `%overwrite` never deletes, truncates, empties, or otherwise modifies an existing output itself. It only permits the task command to run. The command remains responsible for whatever replacement behavior it performs.
@@ -208,9 +238,13 @@ Named data references are shell-quoted when substituted into a `!` command.
 
 A trailing backslash continues a long logical line.
 
-## Pattern tasks: one input, one task, one output
+## Pattern tasks with `@each`
 
-`@each` maps a family of existing files into a family of tasks. Placeholders in braces are captured from the matching filename.
+`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, or supplied as correlated rows for several placeholders. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
+
+### Discover values from matching files
+
+The existing file-pattern form maps a family of files into a family of tasks. Placeholders in braces are captured from the matching filename:
 
 ```text
 pedestal-{run}:
@@ -244,11 +278,83 @@ pedestal/run138.root
 pedestal/run142.root
 ```
 
-Each task receives one matched `raw` input and produces its own declared output.
+Each task receives one matched `raw` input and produces its own declared output. Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
 
-Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
+The input set is discovered and frozen when the campaign is created. A file-pattern `@each` that matches nothing is an error.
 
-The input set is discovered and frozen when the campaign is created. An `@each` pattern that matches nothing is an error.
+### Use an explicit value list
+
+When the scientific campaign defines the family independently of which files happen to be visible, list the placeholder values directly:
+
+```text
+convert-{run}:
+    @each run 296 298 299 300 301 302 303 304 305 306 307 308 309 310
+    @input raw /work/eic3/EPIC/TestBeam/LFHCAL/CERN/2026/2026_SPSH2/raw/Run{run}.h2g
+    @output root work/converted/rawHGCROC_{run}.root
+    ./Convert -i @input.raw -o @output.root
+```
+
+Here `run` names the placeholder in `convert-{run}`, and the remaining tokens are exactly the values to bind. No filesystem discovery is performed by the `@each` line. The values stay in the order written, and each expanded task gets its real inputs from the ordinary `@input` declarations.
+
+For example, the rule above creates `convert-296`, `convert-298`, and so on even if other `Run*.h2g` files are also present in the shared directory. Conversely, merely adding another matching file to that directory does not add it to this campaign.
+
+A single explicit value is valid. Explicit rows must be unique.
+
+### Use correlated values for several placeholders
+
+When several scientific values belong together, put the field names before `:` and provide the values row by row:
+
+```text
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: \
+        296 298 1 \
+        299 300 1 \
+        301 302 1 \
+        303 304 1 \
+        328 329 2 \
+        330 331 2
+    @output pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    ./make-pedestal {ped} {run} {toa}
+```
+
+The field names before `:` define the row width. The example therefore produces exactly these bindings:
+
+```text
+ped=296 run=298 toa=1
+ped=299 run=300 toa=1
+ped=301 run=302 toa=1
+ped=303 run=304 toa=1
+ped=328 run=329 toa=2
+ped=330 run=331 toa=2
+```
+
+Rows are correlated. Yawl does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names, the field names must match the placeholders in the task name, and duplicate rows are rejected clearly.
+
+A patterned child inherits the complete row normally:
+
+```text
+transfer-{ped}-{run}-{toa}: pedestal-{ped}-{run}-{toa}
+    @input pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    @input raw work/converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    ./transfer {ped} {run} {toa}
+```
+
+Thus `transfer-299-300-1` depends on `pedestal-299-300-1` and receives `ped=299`, `run=300`, and `toa=1` together. Correlation is preserved through dependency propagation.
+
+The colon is what makes the multi-field form unambiguous. Existing one-dimensional syntax remains unchanged:
+
+```text
+@each run 296 298 300
+```
+
+and existing file discovery remains unchanged:
+
+```text
+@each raw raw/Run{run}.h2g
+```
+
+After `yawl-run create`, all forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
 
 ## Patterned dependencies
 
@@ -294,7 +400,7 @@ state/
     sum.json
 ```
 
-The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
+The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, named values imported with `@set` or `@env`, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
 
 The files under `state/` are mutable bookkeeping only. They contain the current task state, attempt count, and, after execution, the most recent return code. Keeping these files small lets workers update state independently without duplicating the full task definition.
 

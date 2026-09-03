@@ -114,10 +114,15 @@ def _set_values(text: str) -> Tuple[Tuple[str, str], ...]:
             pending = pending.rstrip()[:-1].rstrip()
             continue
         stripped = pending.strip()
-        if pending[:1] and not pending[:1].isspace() and stripped.startswith("@set "):
-            parts = shlex.split(stripped)
-            if len(parts) == 3:
-                values[parts[1]] = parts[2]
+        if pending[:1] and not pending[:1].isspace():
+            if stripped.startswith("@set "):
+                parts = shlex.split(stripped)
+                if len(parts) == 3:
+                    values[parts[1]] = parts[2]
+            elif stripped.startswith("@env "):
+                parts = shlex.split(stripped)
+                if len(parts) == 2 and parts[1] in os.environ:
+                    values[parts[1]] = os.environ[parts[1]]
         pending = None
     return tuple(values.items())
 

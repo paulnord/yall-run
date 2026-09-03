@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from yawl_run.campaign import create_campaign
 from yawl_run.model import load_spec
 
 
@@ -73,6 +75,254 @@ pedestal-{run}:
         "converted/2026_PST10_raw_138.root",
         "-o",
         "pedestal/2026_PST10_pedestal_138.root",
+    )
+
+
+def test_each_explicit_values_select_exact_family(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign selected-runs
+
+convert-{run}:
+    @each run 296 298 299 300
+    @input raw /shared/LFHCAL/raw/Run{run}.h2g
+    @output root work/converted/rawHGCROC_{run}.root
+    ./Convert -i @input.raw -o @output.root
+""",
+    )
+    spec = load_spec(spec_file)
+    assert [task.name for task in spec.tasks] == [
+        "convert-296",
+        "convert-298",
+        "convert-299",
+        "convert-300",
+    ]
+    assert [task.inputs[0].path for task in spec.tasks] == [
+        "/shared/LFHCAL/raw/Run296.h2g",
+        "/shared/LFHCAL/raw/Run298.h2g",
+        "/shared/LFHCAL/raw/Run299.h2g",
+        "/shared/LFHCAL/raw/Run300.h2g",
+    ]
+    assert spec.tasks[1].outputs[0].path == "work/converted/rawHGCROC_298.root"
+    assert spec.tasks[1].command == (
+        "./Convert",
+        "-i",
+        "/shared/LFHCAL/raw/Run298.h2g",
+        "-o",
+        "work/converted/rawHGCROC_298.root",
+    )
+
+
+def test_each_explicit_values_are_frozen_in_campaign_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign selected-runs
+
+convert-{run}:
+    @each run 296 308
+    @input raw /shared/LFHCAL/raw/Run{run}.h2g
+    @output root converted/rawHGCROC_{run}.root
+    ./Convert @input.raw @output.root
+""",
+    )
+    campaign_dir = create_campaign(load_spec(spec_file), tmp_path / "campaigns")
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["task_order"] == ["convert-296", "convert-308"]
+    assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == (
+        "/shared/LFHCAL/raw/Run308.h2g"
+    )
+    output_path = str(tmp_path / "converted" / "rawHGCROC_308.root")
+    assert manifest["tasks"]["convert-308"]["outputs"][0]["path"] == output_path
+    assert manifest["tasks"]["convert-308"]["command"] == [
+        "./Convert",
+        "/shared/LFHCAL/raw/Run308.h2g",
+        "converted/rawHGCROC_308.root",
+    ]
+
+
+def test_each_explicit_name_must_match_task_placeholder(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign bad-each
+
+convert-{run}:
+    @each sample 296 298
+    echo {run}
+""",
+    )
+    with pytest.raises(ValueError, match="explicit @each names must match"):
+        load_spec(spec_file)
+
+
+def test_each_correlated_rows_preserve_tuple_relationships(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign correlated-runs
+
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: \
+        296 298 1 \
+        299 300 1 \
+        328 329 2 \
+        330 331 2
+    @input raw converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    @output pedestal pedestal/rawHGCROC_wPed_{ped}.root
+    ./make-ped {ped} {run} {toa}
+""",
+    )
+    spec = load_spec(spec_file)
+    assert [task.name for task in spec.tasks] == [
+        "pedestal-296-298-1",
+        "pedestal-299-300-1",
+        "pedestal-328-329-2",
+        "pedestal-330-331-2",
+    ]
+    assert [task.command for task in spec.tasks] == [
+        ("./make-ped", "296", "298", "1"),
+        ("./make-ped", "299", "300", "1"),
+        ("./make-ped", "328", "329", "2"),
+        ("./make-ped", "330", "331", "2"),
+    ]
+    assert spec.tasks[2].inputs[0].path == "converted/rawHGCROC_329.root"
+    assert spec.tasks[2].inputs[1].path == "configs/ToAOffsets_2.csv"
+    assert spec.tasks[2].outputs[0].path == "pedestal/rawHGCROC_wPed_328.root"
+
+
+def test_each_correlated_rows_propagate_to_patterned_child(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign correlated-chain
+
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 299 300 1 328 329 2
+    @output pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    ./pedestal {ped} {run} {toa}
+
+transfer-{ped}-{run}-{toa}: pedestal-{ped}-{run}-{toa}
+    @input pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    @input raw work/converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    ./transfer {ped} {run} {toa}
+""",
+    )
+    spec = load_spec(spec_file)
+    transfer = spec.tasks[4]
+    assert transfer.name == "transfer-299-300-1"
+    assert transfer.parents == ("pedestal-299-300-1",)
+    assert [item.path for item in transfer.inputs] == [
+        "work/pedestal/rawHGCROC_wPed_299.root",
+        "work/converted/rawHGCROC_300.root",
+        "configs/ToAOffsets_1.csv",
+    ]
+    assert transfer.command == ("./transfer", "299", "300", "1")
+
+
+def test_each_correlated_rows_require_exact_width(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign bad-width
+
+thing-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 299 300
+    echo {ped} {run} {toa}
+""",
+    )
+    with pytest.raises(ValueError, match="exact multiple of field count"):
+        load_spec(spec_file)
+
+
+def test_each_correlated_rows_reject_duplicates(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign duplicate-row
+
+thing-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 296 298 1
+    echo {ped} {run} {toa}
+""",
+    )
+    with pytest.raises(ValueError, match="explicit @each rows must be unique"):
+        load_spec(spec_file)
+
+
+def test_env_value_substitutes_into_paths_and_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    raw_root = tmp_path / "shared" / "raw"
+    monkeypatch.setenv("LFHCAL_RAW", str(raw_root))
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign env-path
+@env LFHCAL_RAW
+
+convert-{run}:
+    @each run 296 308
+    @input raw {LFHCAL_RAW}/Run{run}.h2g
+    @output root converted/rawHGCROC_{run}.root
+    ./Convert -c @input.raw -o @output.root
+""",
+    )
+    spec = load_spec(spec_file)
+    assert spec.set_values == (("LFHCAL_RAW", str(raw_root)),)
+    assert spec.tasks[1].inputs[0].path == str(raw_root / "Run308.h2g")
+    assert spec.tasks[1].command == (
+        "./Convert",
+        "-c",
+        str(raw_root / "Run308.h2g"),
+        "-o",
+        "converted/rawHGCROC_308.root",
+    )
+
+    campaign_dir = create_campaign(spec, tmp_path / "campaigns")
+    manifest = json.loads((campaign_dir / "campaign.json").read_text())
+    assert manifest["set_values"] == {"LFHCAL_RAW": str(raw_root)}
+    assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == str(
+        raw_root / "Run308.h2g"
+    )
+    assert "@env LFHCAL_RAW" in (campaign_dir / "Yawlfile").read_text()
+
+
+def test_env_requires_variable_to_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LFHCAL_RAW", raising=False)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign missing-env
+@env LFHCAL_RAW
+
+thing:
+    echo {LFHCAL_RAW}
+""",
+    )
+    with pytest.raises(ValueError, match="required environment variable 'LFHCAL_RAW' is not set"):
+        load_spec(spec_file)
+
+
+def test_set_behavior_is_unchanged_next_to_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DATA_ROOT", "/shared/data")
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign set-and-env
+@set dataset beam2026
+@env DATA_ROOT
+
+thing:
+    echo {dataset} {DATA_ROOT}
+""",
+    )
+    spec = load_spec(spec_file)
+    assert spec.tasks[0].command == ("echo", "beam2026", "/shared/data")
+    assert spec.set_values == (
+        ("dataset", "beam2026"),
+        ("DATA_ROOT", "/shared/data"),
     )
 
 
