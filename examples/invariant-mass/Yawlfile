@@ -12,13 +12,15 @@ reconstruct-{run}: generate-{run}
     @input events mass-work/run-{run}.root
     @output result mass-work/run-{run}-fit.json
     @output hist mass-work/run-{run}-mass.root
-    bash ../mcmc/run-pyroot.sh python3 reconstruct.py @input.events @output.result @output.hist
+    @output fit_png mass-work/run-{run}-fit.png
+    @output fit_pdf mass-work/run-{run}-fit.pdf
+    bash ../mcmc/run-pyroot.sh python3 reconstruct.py @input.events @output.result @output.hist @output.fit_png @output.fit_pdf
 
 merge: reconstruct-{run}
     @input result mass-work/run-{run}-fit.json
     @input hist mass-work/run-{run}-mass.root
     @output root mass-work/combined.root
     @output summary mass-work/summary.txt
-    @output plot mass-work/invariant-mass.png
-    @output plot_pdf mass-work/invariant-mass.pdf
+    @output plot mass-work/combined_fit.png
+    @output plot_pdf mass-work/combined_fit.pdf
     bash ../mcmc/run-pyroot.sh python3 merge.py --results @input.result --roots @input.hist --output @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
