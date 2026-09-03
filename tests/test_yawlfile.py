@@ -153,7 +153,103 @@ convert-{run}:
     echo {run}
 """,
     )
-    with pytest.raises(ValueError, match="explicit @each name must match"):
+    with pytest.raises(ValueError, match="explicit @each names must match"):
+        load_spec(spec_file)
+
+
+def test_each_correlated_rows_preserve_tuple_relationships(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign correlated-runs
+
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: \
+        296 298 1 \
+        299 300 1 \
+        328 329 2 \
+        330 331 2
+    @input raw converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    @output pedestal pedestal/rawHGCROC_wPed_{ped}.root
+    ./make-ped {ped} {run} {toa}
+""",
+    )
+    spec = load_spec(spec_file)
+    assert [task.name for task in spec.tasks] == [
+        "pedestal-296-298-1",
+        "pedestal-299-300-1",
+        "pedestal-328-329-2",
+        "pedestal-330-331-2",
+    ]
+    assert [task.command for task in spec.tasks] == [
+        ("./make-ped", "296", "298", "1"),
+        ("./make-ped", "299", "300", "1"),
+        ("./make-ped", "328", "329", "2"),
+        ("./make-ped", "330", "331", "2"),
+    ]
+    assert spec.tasks[2].inputs[0].path == "converted/rawHGCROC_329.root"
+    assert spec.tasks[2].inputs[1].path == "configs/ToAOffsets_2.csv"
+    assert spec.tasks[2].outputs[0].path == "pedestal/rawHGCROC_wPed_328.root"
+
+
+def test_each_correlated_rows_propagate_to_patterned_child(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign correlated-chain
+
+pedestal-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 299 300 1 328 329 2
+    @output pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    ./pedestal {ped} {run} {toa}
+
+transfer-{ped}-{run}-{toa}: pedestal-{ped}-{run}-{toa}
+    @input pedestal work/pedestal/rawHGCROC_wPed_{ped}.root
+    @input raw work/converted/rawHGCROC_{run}.root
+    @input toa configs/ToAOffsets_{toa}.csv
+    ./transfer {ped} {run} {toa}
+""",
+    )
+    spec = load_spec(spec_file)
+    transfer = spec.tasks[4]
+    assert transfer.name == "transfer-299-300-1"
+    assert transfer.parents == ("pedestal-299-300-1",)
+    assert [item.path for item in transfer.inputs] == [
+        "work/pedestal/rawHGCROC_wPed_299.root",
+        "work/converted/rawHGCROC_300.root",
+        "configs/ToAOffsets_1.csv",
+    ]
+    assert transfer.command == ("./transfer", "299", "300", "1")
+
+
+def test_each_correlated_rows_require_exact_width(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign bad-width
+
+thing-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 299 300
+    echo {ped} {run} {toa}
+""",
+    )
+    with pytest.raises(ValueError, match="exact multiple of field count"):
+        load_spec(spec_file)
+
+
+def test_each_correlated_rows_reject_duplicates(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    spec_file = _write(
+        tmp_path / "Yawlfile",
+        """campaign duplicate-row
+
+thing-{ped}-{run}-{toa}:
+    @each ped run toa: 296 298 1 296 298 1
+    echo {ped} {run} {toa}
+""",
+    )
+    with pytest.raises(ValueError, match="explicit @each rows must be unique"):
         load_spec(spec_file)
 
 
