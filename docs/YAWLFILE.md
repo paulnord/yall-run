@@ -105,6 +105,36 @@ convert:
 
 Known `{name}` placeholders from `@set` are substituted before task patterns are expanded.
 
+### Import a named value from the environment
+
+Use `@env NAME` when a site-specific value should come from the environment that runs `yawl-run validate`, `plan`, or `create`:
+
+```text
+@env LFHCAL_RAW
+
+convert-{run}:
+    @each run 296 298 300
+    @input raw {LFHCAL_RAW}/Run{run}.h2g
+    @output root work/rawHGCROC_{run}.root
+    ./Convert -c @input.raw -o @output.root
+```
+
+For example, a STAR login shell could provide:
+
+```csh
+setenv LFHCAL_RAW /work/eic3/EPIC/TestBeam/LFHCAL/CERN/2026/2026_SPSH2/raw
+```
+
+`@env LFHCAL_RAW` reads that value while the Yawlfile is parsed. The value participates in the same `{LFHCAL_RAW}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
+
+This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yawl-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `LFHCAL_RAW` later does not change that campaign.
+
+The archived `Yawlfile` remains byte-for-byte the source file and still contains the literal `@env LFHCAL_RAW` line.
+
+A required imported variable must exist. If it is absent, `validate`, `plan`, and `create` fail with a message naming the missing environment variable; yawl-run does not substitute an empty string.
+
+`@set` behavior is unchanged. `@set` and `@env` share the same placeholder namespace, so normal source order determines the value if the same name is deliberately declared more than once.
+
 ## Execution policy: `%`
 
 `%` directives describe how a task should run rather than what data it consumes.
@@ -138,8 +168,8 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 ```text
 analysis:
     %overwrite
-    @output root result.root
-    ./Analyze -o @output.root
+    @output root results/run308.root
+    ./Analyze ...
 ```
 
 `%overwrite` never deletes, truncates, empties, or otherwise modifies an existing output itself. It only permits the task command to run. The command remains responsible for whatever replacement behavior it performs.
@@ -330,7 +360,7 @@ state/
     sum.json
 ```
 
-The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
+The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, named values imported with `@set` or `@env`, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
 
 The files under `state/` are mutable bookkeeping only. They contain the current task state, attempt count, and, after execution, the most recent return code. Keeping these files small lets workers update state independently without duplicating the full task definition.
 
