@@ -1,12 +1,12 @@
-# PyROOT RooStats MCMC: a Landau-Gaussian posterior
+# PyROOT RooStats MCMC: a low-statistics LFHCal-like Langau posterior
 
 This example runs eight independent Bayesian Markov chains for a synthetic
 Landau convolved with Gaussian ("Langau") spectrum. Unlike the small numerical
 examples, the statistical engine here is ROOT itself:
 
-- `RooLandau` and `RooGaussian` define the components.
-- `RooFFTConvPdf` performs the numerical convolution.
-- `RooStats::MCMCCalculator` runs Metropolis-Hastings chains.
+- `RooLandau` and `RooGaussian` define the components;
+- `RooFFTConvPdf` performs the numerical convolution;
+- `RooStats::MCMCCalculator` runs Metropolis-Hastings chains;
 - each chain is written to its own ROOT file;
 - the chains are combined, checked with split R-hat, and plotted with ROOT.
 
@@ -19,31 +19,65 @@ The likelihood is a Landau distribution convolved with a Gaussian detector
 resolution:
 
 ```text
-f(x | m, sigma_L, sigma_G) = Landau(x; m, sigma_L) * Gaussian(x; 0, sigma_G)
+f(x | MP, sigma_L, sigma_G) = Landau(x; MP, sigma_L) * Gaussian(x; 0, sigma_G)
 ```
 
-with three floating parameters:
+with three floating shape parameters:
 
-- `mpv`: Landau location,
-- `landau_width`: Landau width,
+- `mpv`: the corrected Landau most-probable value;
+- `landau_width`: Landau scale parameter;
 - `gauss_sigma`: Gaussian detector resolution.
 
-The synthetic data are generated at
+The synthetic data reproduce the low-statistics LFHCal/HGCROC toy case that
+motivated this example:
 
 ```text
-mpv = 35
-landau_width = 4.5
-gauss_sigma = 2.5
+mpv = 80 ADC
+landau_width = 8 ADC
+gauss_sigma = 4 ADC
+events = 2500
 ```
+
+The Landau is intentionally much broader than the Gaussian. At 2,500 events,
+finite-statistics fluctuations can make the two width contributions difficult
+to separate, so the posterior correlation and chain convergence are physically
+interesting rather than merely a demonstration that MCMC runs.
+
+The observable spans 0--320 ADC in one-ADC bins. The convolution uses 4096
+cache bins.
+
+### MP convention
+
+ROOT's underlying Landau implementation has its maximum at about
+`-0.22278298 * width` when its location parameter is zero. The classic ROOT
+`langaus` function used by the LFHCal calibration code corrects this shift so
+that its MP parameter is the actual maximum of the unconvolved Landau.
+
+This example makes the same correction. The sampled `mpv` therefore has the
+same meaning as the MP parameter in the earlier LFHCal toy study, while an
+internal `landau_location` formula supplies the corresponding location to
+`RooLandau`.
+
+### Why there is no peak-height parameter
+
+`RooFFTConvPdf` is a normalized probability density. This example conditions on
+the observed number of events, so the histogram normalization is supplied by
+the dataset size rather than sampled as another parameter. For a given event
+count and the three shape parameters, the expected peak height is therefore a
+derived quantity.
+
+The older LFHCal `langaufun` fit did have a fourth parameter, but it was total
+area (normalization), not peak height itself. An extended RooFit model could add
+a yield parameter if we want to study normalization uncertainty separately.
+For the present experiment, keeping the event count fixed isolates the
+low-statistics degeneracy between Landau width and Gaussian resolution.
 
 `mpv` is the RooStats parameter of interest; the two width parameters are
 registered as nuisance parameters, but all three are sampled and included in
 the diagnostics and corner plot. Uniform priors are used over the finite
-parameter ranges encoded in the `RooRealVar`s. The data are binned before
-entering the MCMC likelihood, while the convolution itself uses 2048 cache bins.
-
-This is deliberately a clean Langau problem. Pedestal/background components
-can be added later without changing the workflow shape.
+parameter ranges encoded in the `RooRealVar`s. The broad MP prior follows the
+range used in the earlier toy-fit study, and the sequential proposal is scaled
+to make sensible moves within those broad ranges.
 
 ## Why eight chains?
 
@@ -89,7 +123,8 @@ execution environment in this order:
 1. If the host `python3` can import ROOT and expose
    `RooStats.MCMCCalculator`, use it directly.
 2. If `YAWL_MCMC_EIC_SHELL` names a generated outer `eic-shell` script, use it.
-3. Otherwise use an EIC container image with Apptainer or Singularity.
+3. Otherwise execute the payload directly in an EIC Apptainer/Singularity
+   image.
 
 For the container path, the launcher checks `YAWL_MCMC_EIC_IMAGE`, then the
 LFHCal-compatible `LFHCAL_CONTAINER_IMAGE`, then defaults to the standard EIC
@@ -99,9 +134,7 @@ CVMFS image used at sites such as BNL and JLab:
 /cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:nightly
 ```
 
-The launcher executes the payload through `eic-shell` inside that image so the
-ROOT/RooFit/RooStats environment is initialized before `python3` starts. It
-also binds the common EIC/BNL shared paths that exist on the host.
+It also binds the common EIC/BNL shared paths that exist on the host.
 
 On a BNL or JLab machine with that CVMFS image visible, the ordinary run command
 below should therefore require no separate ROOT installation. To select a
@@ -151,8 +184,8 @@ coefficients above it.
 `traces` overlays all eight chains for each model parameter.
 
 `posterior_predictive` compares the synthetic data with the posterior median
-prediction, a central 68% posterior-predictive band, and the known generation
-truth.
+expected spectrum, a central 68% posterior parameter band, and the known
+generation truth.
 
 The ROOT chain files store the Markov chain in compressed form. Rejected
 Metropolis proposals are represented by the `weight` of the retained state
@@ -169,8 +202,11 @@ yawl-run create -j 8 | yawl-run start
 cat mcmc-work/summary.txt
 ```
 
+For Condor, change the backend in the Yawlfile or use the supported backend
+override when creating the campaign, then start the created campaign.
+
 On a high-latency shared filesystem, put the yawl campaign record on local
-scratch if you are measuring orchestration overhead:
+scratch if you are measuring local orchestration overhead:
 
 ```bash
 yawl-run create -j 8 --campaigns-dir /tmp/yawl-campaigns | yawl-run start
