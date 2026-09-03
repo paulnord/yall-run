@@ -9,7 +9,11 @@ from yawl_run.model import load_spec
 def _copy_example(tmp_path: Path, name: str) -> Path:
     root = Path(__file__).resolve().parents[1]
     example = tmp_path / name
-    shutil.copytree(root / "examples" / name, example)
+    shutil.copytree(
+        root / "examples" / name,
+        example,
+        ignore=shutil.ignore_patterns("*-work"),
+    )
     return example
 
 
