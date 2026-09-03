@@ -152,10 +152,7 @@ def make_traces(
         ROOT.kGray + 2,
     ]
 
-    values = {
-        parameter: defaultdict(list)
-        for parameter in parameters
-    }
+    values = {parameter: defaultdict(list) for parameter in parameters}
     for row in iter_tree(tree):
         if post_burn_weight(row, burn_in) == 0:
             continue
@@ -264,16 +261,24 @@ def make_predictive(
     event_count = float(data.sumEntries())
 
     data_hist = ROOT.TH1D(
-        "posterior_predictive_data",
-        "Langau posterior predictive;x;events / bin",
+        "posterior_expected_data",
+        "Langau posterior expected spectrum;x;events / bin",
         nbins,
         x_min,
         x_max,
     )
     data_hist.SetDirectory(0)
+    # RooDataHist is already binned. Filling TH1 once with data.weight() would
+    # treat each bin count as a single weighted event and give an error equal
+    # to the bin content. Set the observed count and its Poisson sqrt(N) error
+    # explicitly instead.
     for index in range(data.numEntries()):
         point = data.get(index)
-        data_hist.Fill(float(point.find("x").getVal()), float(data.weight()))
+        center = float(point.find("x").getVal())
+        count = float(data.weight())
+        bin_number = data_hist.FindBin(center)
+        data_hist.SetBinContent(bin_number, count)
+        data_hist.SetBinError(bin_number, math.sqrt(count) if count > 0.0 else 0.0)
 
     draws = weighted_posterior_states(tree, parameters, burn_in, 80)
     observables = ROOT.RooArgSet(x)
@@ -303,7 +308,9 @@ def make_predictive(
         mid = quantile(values, 0.50)
         high = quantile(values, 0.84)
         band.SetPoint(bin_index, center, mid)
-        band.SetPointError(bin_index, width / 2.0, width / 2.0, mid - low, high - mid)
+        band.SetPointError(
+            bin_index, width / 2.0, width / 2.0, mid - low, high - mid
+        )
         median.SetPoint(bin_index, center, mid)
 
         x.setVal(center)
@@ -311,7 +318,7 @@ def make_predictive(
         truth_curve.SetPoint(bin_index, center, expected_truth)
 
     canvas = ROOT.TCanvas(
-        "predictive_canvas", "Langau posterior predictive", 1000, 700
+        "predictive_canvas", "Langau posterior expected spectrum", 1000, 700
     )
     canvas.SetLeftMargin(0.11)
     canvas.SetRightMargin(0.04)
@@ -320,8 +327,9 @@ def make_predictive(
     data_hist.SetMarkerSize(0.8)
     data_hist.Draw("E1")
 
-    band.SetFillColorAlpha(ROOT.kAzure - 9, 0.55)
+    band.SetFillColorAlpha(ROOT.kAzure - 9, 0.65)
     band.SetLineColor(ROOT.kAzure + 2)
+    band.SetLineWidth(1)
     band.Draw("3 SAME")
     median.SetLineColor(ROOT.kBlue + 2)
     median.SetLineWidth(2)
@@ -332,12 +340,12 @@ def make_predictive(
     truth_curve.Draw("L SAME")
     data_hist.Draw("E1 SAME")
 
-    legend = ROOT.TLegend(0.62, 0.66, 0.94, 0.90)
+    legend = ROOT.TLegend(0.59, 0.66, 0.94, 0.90)
     legend.SetBorderSize(0)
     legend.SetFillStyle(0)
-    legend.AddEntry(data_hist, "synthetic data", "lep")
-    legend.AddEntry(band, "posterior predictive 68%", "f")
-    legend.AddEntry(median, "posterior median", "l")
+    legend.AddEntry(data_hist, "synthetic data (Poisson errors)", "lep")
+    legend.AddEntry(band, "posterior expected spectrum 68%", "f")
+    legend.AddEntry(median, "posterior median expected spectrum", "l")
     legend.AddEntry(truth_curve, "generation truth", "l")
     legend.Draw()
 
@@ -375,7 +383,7 @@ def main() -> int:
         args.model, tree, diagnostics, parameters, burn_in, args.output_dir
     )
     posterior.Close()
-    print("wrote corner, trace, and posterior-predictive plots")
+    print("wrote corner, trace, and posterior expected-spectrum plots")
     return 0
 
 
