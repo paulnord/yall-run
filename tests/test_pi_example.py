@@ -9,7 +9,11 @@ from yawl_run.model import load_spec
 def test_pi_map_reduce_example(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
     example = tmp_path / "pi"
-    shutil.copytree(root / "examples" / "pi", example)
+    shutil.copytree(
+        root / "examples" / "pi",
+        example,
+        ignore=shutil.ignore_patterns("*-work"),
+    )
     monkeypatch.chdir(example)
 
     spec = load_spec("Yawlfile")
