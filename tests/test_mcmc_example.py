@@ -72,7 +72,7 @@ def test_mcmc_spectrum_plot_has_residual_panel_with_posterior_band():
     assert "residual_band.SetPoint(bin_index, center, 0.0)" in plot
     assert "mid - low, high - mid" in plot
     assert "residual_truth.SetPoint(bin_index, center, expected_truth - mid)" in plot
-    assert '"difference [events / bin]"' in plot
+    assert '"data - posterior median [events / bin]"' in plot
 
 
 def test_mcmc_parameter_plots_show_generation_truth():
