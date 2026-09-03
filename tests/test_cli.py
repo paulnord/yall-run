@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 import sys
 
@@ -64,6 +65,61 @@ def test_cli_start_rejects_multiple_stdin_paths(monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("campaign-one\ncampaign-two\n"))
     assert main(["start"]) == 2
     assert "exactly one campaign path" in capsys.readouterr().err
+
+
+def test_cli_plan_json_emits_expanded_machine_readable_plan(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Yawlfile").write_text(
+        "campaign structured-plan\n"
+        "backend local\n\n"
+        "prepare:\n"
+        "    @output data prepared.dat\n"
+        "    echo prepare\n\n"
+        "analyze: prepare\n"
+        "    @input data prepared.dat\n"
+        "    @output result result.dat\n"
+        "    %retry 2\n"
+        "    %cpus 4\n"
+        "    %overwrite\n"
+        "    echo analyze\n"
+    )
+
+    assert main(["plan", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["name"] == "structured-plan"
+    assert data["backend"] == "local"
+    assert data["source"] == str(tmp_path / "Yawlfile")
+    assert [task["name"] for task in data["tasks"]] == ["prepare", "analyze"]
+    analyze = data["tasks"][1]
+    assert analyze["parents"] == ["prepare"]
+    assert analyze["retries"] == 2
+    assert analyze["overwrite"] is True
+    assert analyze["resources"]["cpus"] == 4
+    assert analyze["inputs"] == [{"role": "data", "path": "prepared.dat"}]
+    assert analyze["outputs"] == [{"role": "result", "path": "result.dat"}]
+    assert analyze["command"] == ["echo", "analyze"]
+
+
+def test_cli_plan_dot_emits_expanded_dependency_graph(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Yawlfile").write_text(
+        "campaign dot-plan\n\n"
+        "left:\n"
+        "    echo left\n\n"
+        "right:\n"
+        "    echo right\n\n"
+        "finish: left right\n"
+        "    echo finish\n"
+    )
+
+    assert main(["plan", "--dot"]) == 0
+    output = capsys.readouterr().out
+    assert output.startswith("digraph yawl {\n")
+    assert '  "left";' in output
+    assert '  "right";' in output
+    assert '  "finish";' in output
+    assert '  "left" -> "finish";' in output
+    assert '  "right" -> "finish";' in output
 
 
 def test_cli_rejects_j_for_condor_create(tmp_path, monkeypatch, capsys):
