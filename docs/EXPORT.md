@@ -37,7 +37,7 @@ The same natural identity used by yawl is used as the relational primary key. No
 
 The input/output indexes preserve the order of repeated JSON entries and only exist where the underlying record is one-to-many. Timing values stay on `attempt` because there is exactly one timing record per attempt. Resume state counts are separated into `resume_count` because each resume has multiple counts for two phases.
 
-The export is a derived view. Campaign JSON remains the canonical computational record; exporting does not modify campaign directories. Older campaigns can still be exported when newer provenance fields are absent; unavailable values are left `NULL`.
+The export is a derived view. Campaign JSON remains the canonical computational record; exporting does not modify campaign directories.
 
 ## Useful SQLite commands
 
@@ -61,8 +61,6 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  root-muon-lifetime  local
 ```
 
 ### Count recorded attempts by campaign
-
-A `LEFT JOIN` keeps campaigns that have no attempt records, which is useful when looking at older campaign formats.
 
 ```bash
 sqlite3 -header -column yawl.sqlite \
@@ -117,20 +115,6 @@ sqlite3 -header -column yawl.sqlite \
 ```
 
 A clean archive simply prints the column headings and no rows.
-
-### Find legacy tasks with no frozen command
-
-Older campaign records may predate frozen task commands. The exporter preserves that absence as `NULL` rather than inventing a value.
-
-```bash
-sqlite3 -header -column yawl.sqlite \
-'select campaign_id,task_name
- from task
- where command_json is null
- order by campaign_id,task_name;'
-```
-
-This is also a quick way to identify which campaigns were written with an older provenance schema.
 
 ### Trace the declared inputs for one task
 
