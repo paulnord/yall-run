@@ -51,6 +51,17 @@ def test_mcmc_example_uses_low_statistics_lfhcal_toy():
     assert 'proposal = ROOT.RooStats.SequentialProposal(30.0)' in chain
 
 
+def test_mcmc_spectrum_plot_uses_counting_errors_not_weight_errors():
+    root = Path(__file__).resolve().parents[1]
+    plot = (root / "examples" / "mcmc" / "plot.py").read_text()
+
+    assert "SetBinContent(bin_number, count)" in plot
+    assert "SetBinError(bin_number, math.sqrt(count)" in plot
+    assert 'data_hist.Fill(float(point.find("x").getVal()), float(data.weight()))' not in plot
+    assert '"posterior expected spectrum 68%"' in plot
+    assert '"synthetic data (Poisson errors)"' in plot
+
+
 def test_mcmc_pyroot_launcher_shell_syntax():
     root = Path(__file__).resolve().parents[1]
     launcher = root / "examples" / "mcmc" / "run-pyroot.sh"
