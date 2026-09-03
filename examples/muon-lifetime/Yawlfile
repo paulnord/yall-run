@@ -1,0 +1,30 @@
+campaign root-muon-lifetime
+backend local
+
+# Each run is an independent miniature experiment. All ROOT-dependent commands
+# use the same launcher/environment as the MCMC example.
+simulate-{run}:
+    @each config runs/run-{run}.txt
+    @output data muon-work/run-{run}.root
+    %cpus 1
+    %memory 512MB
+    bash ../mcmc/run-pyroot.sh python3 simulate.py @input.config @output.data
+
+fit-{run}: simulate-{run}
+    @input data muon-work/run-{run}.root
+    @output fit muon-work/run-{run}-fit.json
+    @output fit_root muon-work/run-{run}-fit.root
+    bash ../mcmc/run-pyroot.sh python3 fit.py @input.data @output.fit @output.fit_root
+
+check-{run}: fit-{run}
+    @input fit muon-work/run-{run}-fit.json
+    @output checked muon-work/run-{run}-checked.json
+    bash ../mcmc/run-pyroot.sh python3 check.py @input.fit @output.checked
+
+combine: check-{run}
+    @input result muon-work/run-{run}-checked.json
+    @output root muon-work/combined.root
+    @output summary muon-work/summary.txt
+    @output plot muon-work/lifetime.png
+    @output plot_pdf muon-work/lifetime.pdf
+    bash ../mcmc/run-pyroot.sh python3 combine.py @input.result --root @output.root --summary @output.summary --plot @output.plot --pdf @output.plot_pdf
