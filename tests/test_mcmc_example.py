@@ -62,6 +62,19 @@ def test_mcmc_spectrum_plot_uses_counting_errors_not_weight_errors():
     assert '"synthetic data (Poisson errors)"' in plot
 
 
+def test_mcmc_spectrum_plot_has_residual_panel_with_posterior_band():
+    root = Path(__file__).resolve().parents[1]
+    plot = (root / "examples" / "mcmc" / "plot.py").read_text()
+
+    assert "residual_band = ROOT.TGraphAsymmErrors(nbins)" in plot
+    assert "residual_hist.SetBinContent(bin_number, residual)" in plot
+    assert "residual_hist.SetBinError(bin_number, count_error)" in plot
+    assert "residual_band.SetPoint(bin_index, center, 0.0)" in plot
+    assert "mid - low, high - mid" in plot
+    assert "residual_truth.SetPoint(bin_index, center, expected_truth - mid)" in plot
+    assert '"difference [events / bin]"' in plot
+
+
 def test_mcmc_parameter_plots_show_generation_truth():
     root = Path(__file__).resolve().parents[1]
     plot = (root / "examples" / "mcmc" / "plot.py").read_text()
