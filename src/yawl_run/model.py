@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
+import shlex
 from typing import Tuple, Union
 
 from .paths import logical_absolute
@@ -103,6 +104,24 @@ def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None
                 owners[path] = task.name
 
 
+def _set_values(text: str) -> Tuple[Tuple[str, str], ...]:
+    values: dict[str, str] = {}
+    pending: str | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        pending = (pending + " " + line.lstrip()) if pending is not None else line
+        if pending.rstrip().endswith("\\"):
+            pending = pending.rstrip()[:-1].rstrip()
+            continue
+        stripped = pending.strip()
+        if pending[:1] and not pending[:1].isspace() and stripped.startswith("@set "):
+            parts = shlex.split(stripped)
+            if len(parts) == 3:
+                values[parts[1]] = parts[2]
+        pending = None
+    return tuple(values.items())
+
+
 def load_spec(path: str | Path) -> CampaignSpec:
     source = logical_absolute(path)
     if source.suffix.lower() == ".toml":
@@ -119,6 +138,7 @@ def load_spec(path: str | Path) -> CampaignSpec:
     previous_cwd = Path.cwd()
     try:
         os.chdir(source.parent)
-        return load_yawl_spec(source)
+        spec = load_yawl_spec(source)
+        return replace(spec, set_values=_set_values(source.read_text()))
     finally:
         os.chdir(previous_cwd)
