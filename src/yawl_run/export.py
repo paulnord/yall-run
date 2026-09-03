@@ -41,7 +41,7 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("task_name", "TEXT NOT NULL"),
         ("task_index", "INTEGER NOT NULL"),
         ("cwd", "TEXT"),
-        ("command_json", "TEXT NOT NULL"),
+        ("command_json", "TEXT"),
         ("retries", "INTEGER NOT NULL"),
         ("overwrite", "INTEGER NOT NULL"),
         ("cpus", "INTEGER"),
