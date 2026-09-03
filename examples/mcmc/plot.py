@@ -473,7 +473,7 @@ def make_predictive(
     residual_hist.SetMarkerColor(ROOT.kBlack)
     residual_hist.SetLineColor(ROOT.kBlack)
     residual_hist.GetXaxis().SetTitle("x [ADC]")
-    residual_hist.GetYaxis().SetTitle("difference [events / bin]")
+    residual_hist.GetYaxis().SetTitle("data - posterior median [events / bin]")
     residual_hist.GetXaxis().SetTitleSize(0.11)
     residual_hist.GetXaxis().SetLabelSize(0.09)
     residual_hist.GetXaxis().SetTitleOffset(1.05)
