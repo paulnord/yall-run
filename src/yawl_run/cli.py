@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import shutil
+import sqlite3
 import sys
 
 from .campaign import (
@@ -15,6 +16,7 @@ from .campaign import (
     start_local,
 )
 from .condor_backend import condor_queue_status, render_condor, submit_rendered
+from .export import export_provenance
 from .model import load_spec
 from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
 from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
@@ -22,8 +24,6 @@ from .worker import run_task
 
 
 def _friendly_sections(parser: argparse.ArgumentParser, positional_title: str = "arguments") -> None:
-    # argparse's default "positional arguments" / "optional arguments" headings
-    # describe parser mechanics rather than the yawl interface.
     parser._positionals.title = positional_title
     parser._optionals.title = "options"
 
@@ -34,7 +34,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Yet Another Workflow Layer. Y'all run!",
     )
     _friendly_sections(parser, "commands")
-    visible_commands = "{validate,plan,create,start,resume,status,retry}"
+    visible_commands = "{validate,plan,create,start,resume,status,retry,export}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -49,16 +49,8 @@ def _parser() -> argparse.ArgumentParser:
     _friendly_sections(plan)
     plan.add_argument("spec", nargs="?", default="Yawlfile")
     plan_format = plan.add_mutually_exclusive_group()
-    plan_format.add_argument(
-        "--json",
-        action="store_true",
-        help="emit the expanded plan as JSON",
-    )
-    plan_format.add_argument(
-        "--dot",
-        action="store_true",
-        help="emit the expanded dependency graph in Graphviz DOT format",
-    )
+    plan_format.add_argument("--json", action="store_true", help="emit the expanded plan as JSON")
+    plan_format.add_argument("--dot", action="store_true", help="emit the expanded dependency graph in Graphviz DOT format")
 
     create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
     _friendly_sections(create)
@@ -104,8 +96,18 @@ def _parser() -> argparse.ArgumentParser:
     retry.add_argument("campaign_dir")
     retry.add_argument("task")
 
-    # worker is an internal entry point used by generated scheduler jobs. Keep it
-    # parseable but omit it from ordinary command listings and usage text.
+    export = sub.add_parser("export", help="export campaign provenance to relational files")
+    _friendly_sections(export)
+    export.add_argument(
+        "sources",
+        nargs="+",
+        metavar="CAMPAIGN_OR_DIR",
+        help="campaign directory or directory tree containing campaigns",
+    )
+    export.add_argument("--sqlite", metavar="FILE", help="write or update a SQLite database")
+    export.add_argument("--sql", metavar="FILE", help="write SQLite-compatible SQL")
+    export.add_argument("--csv-dir", metavar="DIR", help="write one CSV file per table")
+
     worker = sub.add_parser("worker", help=argparse.SUPPRESS)
     _friendly_sections(worker)
     worker.add_argument("campaign_dir")
@@ -138,14 +140,8 @@ def _plan_json(spec: object) -> dict[str, object]:
                 "memory": task.resources.memory,
                 "disk": task.resources.disk,
             },
-            "inputs": [
-                {"role": ref.role, "path": ref.path}
-                for ref in task.inputs
-            ],
-            "outputs": [
-                {"role": ref.role, "path": ref.path}
-                for ref in task.outputs
-            ],
+            "inputs": [{"role": ref.role, "path": ref.path} for ref in task.inputs],
+            "outputs": [{"role": ref.role, "path": ref.path} for ref in task.outputs],
         })
     return {
         "name": spec.name,
@@ -287,9 +283,7 @@ def main(argv: list[str] | None = None) -> int:
                     suffix = ""
                     active = active_nodes.get(task["name"])
                     if active:
-                        suffix = (
-                            f" {backend}={active['state']} job={active['job_id']}"
-                        )
+                        suffix = f" {backend}={active['state']} job={active['job_id']}"
                     print(
                         f"  {task['name']:<20} {task['state']:<10} "
                         f"attempts={task['attempts']}{suffix}"
@@ -312,10 +306,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "retry":
             return retry_task(args.campaign_dir, args.task)
 
+        if args.command == "export":
+            campaigns, counts = export_provenance(
+                args.sources,
+                sqlite_path=args.sqlite,
+                sql_path=args.sql,
+                csv_dir=args.csv_dir,
+            )
+            print(f"exported {len(campaigns)} campaign(s)")
+            nonzero = [f"{name}={count}" for name, count in counts.items() if count]
+            if nonzero:
+                print("rows: " + " ".join(nonzero))
+            return 0
+
         if args.command == "worker":
             return run_task(args.campaign_dir, args.task)
 
-    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
         print(f"yawl-run: {exc}", file=sys.stderr)
         return 2
 
