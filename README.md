@@ -1,24 +1,24 @@
-# yawl-run
+# yall-run
 
 <p align="center">
-  <img src="docs/images/yawl-run-logo.png" alt="yawl-run logo" width="400">
+  <img src="docs/images/yall-run-logo.png" alt="yall-run logo" width="400">
 </p>
 
-**Yet Another Workflow Layer**  
+**Yet Another Launch Layer**  
 **Y'all run!**
 
-yawl-run is a deliberately small campaign runner for reproducible analysis work. It sits above a batch system rather than trying to become one.
+yall-run is a deliberately small campaign runner for reproducible analysis work. It sits above a batch system rather than trying to become one.
 
-A `Yawlfile` is a reusable workflow recipe, much like a Makefile. A campaign is one frozen instance of that recipe:
+A `Yallfile` is a reusable workflow recipe, much like a Makefile. A campaign is one frozen instance of that recipe:
 
 ```text
-Yawlfile
+Yallfile
   -> campaign
        -> task
             -> attempt
 ```
 
-yawl-run owns campaign identity, stable task names, dependencies, retry history, logs, provenance, and backend adapters. The queue system still owns resource allocation, queue policy, execution hosts, holds, and machine scheduling.
+yall-run owns campaign identity, stable task names, dependencies, retry history, logs, provenance, and backend adapters. The queue system still owns resource allocation, queue policy, execution hosts, holds, and machine scheduling.
 
 ## Backends
 
@@ -41,10 +41,10 @@ python3 -m pip install -e .
 
 ## Five-minute example
 
-Create a file named `Yawlfile`:
+Create a file named `Yallfile`:
 
 ```text
-campaign hello-yawl
+campaign hello-yall
 backend local
 
 left:
@@ -60,9 +60,9 @@ finish: left right
 Then:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create | yall-run start
 ```
 
 `create` freezes a new campaign and prints its directory. `start` runs that exact campaign. Creating another run means creating another campaign.
@@ -70,7 +70,7 @@ yawl-run create | yawl-run start
 For a local workflow with up to four dependency-ready tasks running at once:
 
 ```bash
-yawl-run create --backend local -j 4 | yawl-run start
+yall-run create --backend local -j 4 | yall-run start
 ```
 
 That is enough to get started. The details live in the focused documentation below.
@@ -78,7 +78,7 @@ That is enough to get started. The details live in the focused documentation bel
 ## Documentation
 
 - [Quick start](docs/QUICKSTART.md) - first campaign from install through status
-- [Yawlfile reference](docs/YAWLFILE.md) - tasks, data, `@each`, resources, wrappers, and workflow syntax
+- [Yallfile reference](docs/YALLFILE.md) - tasks, data, `@each`, resources, wrappers, and workflow syntax
 - [Campaigns](docs/CAMPAIGNS.md) - create/start lifecycle, frozen campaigns, state, and attempt directories
 - [Backends](docs/BACKENDS.md) - local execution, Condor/DAGMan, Slurm, PBS, resources, and wrappers
 - [Provenance](docs/PROVENANCE.md) - campaign and attempt records and provenance exposed to programs
@@ -87,6 +87,6 @@ That is enough to get started. The details live in the focused documentation bel
 
 ## Design rule
 
-A feature belongs in yawl-run when it expresses a portable workflow concept: tasks, dependencies, attempts, resources, provenance, execution environment, or scheduler adaptation. Details that only make sense for one application, data format, experiment, analysis package, or site's scientific conventions belong in the application-specific layer instead.
+A feature belongs in yall-run when it expresses a portable workflow concept: tasks, dependencies, attempts, resources, provenance, execution environment, or scheduler adaptation. Details that only make sense for one application, data format, experiment, analysis package, or site's scientific conventions belong in the application-specific layer instead.
 
-> Naming note: yawl-run is not the YAWL (Yet Another Workflow Language) workflow system.
+> Naming note: yall-run is not the YAWL (Yet Another Workflow Language) workflow system.

@@ -56,7 +56,7 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
 
     scripts: dict[str, str] = {}
     for index, task in enumerate(spec.tasks):
-        node = f"yawl_{index:04d}_{slug(task.name)}"
+        node = f"yall_{index:04d}_{slug(task.name)}"
         script = slurm_dir / f"{node}.sh"
         cpus = task.resources.cpus or spec.condor.request_cpus
         memory = normalize_memory(
@@ -72,7 +72,7 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             f"#SBATCH --mem={memory}\n"
             f"#SBATCH --output={logs_dir / (node + '.out')}\n"
             f"#SBATCH --error={logs_dir / (node + '.err')}\n"
-            f"# yawl requested disk={disk}; no portable Slurm disk request is emitted\n"
+            f"# yall requested disk={disk}; no portable Slurm disk request is emitted\n"
             "set -u\n"
             + retry_shell(command, task.retries)
         )

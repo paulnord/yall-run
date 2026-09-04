@@ -2,8 +2,8 @@ import math
 from pathlib import Path
 import shutil
 
-from yawl_run.campaign import campaign_status, create_campaign, start_local
-from yawl_run.model import load_spec
+from yall_run.campaign import campaign_status, create_campaign, start_local
+from yall_run.model import load_spec
 
 
 def test_pi_map_reduce_example(tmp_path, monkeypatch):
@@ -16,7 +16,7 @@ def test_pi_map_reduce_example(tmp_path, monkeypatch):
     )
     monkeypatch.chdir(example)
 
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
     assert len(spec.tasks) == 10
     assert [task.name for task in spec.tasks[:2]] == ["prepare", "partial-000"]
     assert spec.tasks[-1].name == "sum"

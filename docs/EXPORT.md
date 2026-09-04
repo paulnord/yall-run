@@ -1,12 +1,12 @@
 # Relational provenance export
 
-`yawl-run export` reads one campaign directory or recursively discovers campaigns below one or more directories and writes the durable yawl JSON records into normalized relational tables.
+`yall-run export` reads one campaign directory or recursively discovers campaigns below one or more directories and writes the durable yall JSON records into normalized relational tables.
 
 ```bash
-yawl-run export campaigns \
-    --sqlite yawl.sqlite \
-    --sql yawl.sql \
-    --csv-dir yawl-csv
+yall-run export campaigns \
+    --sqlite yall.sqlite \
+    --sql yall.sql \
+    --csv-dir yall-csv
 ```
 
 Any one of the three output forms may be requested:
@@ -15,7 +15,7 @@ Any one of the three output forms may be requested:
 - `--sql FILE` writes SQLite-compatible schema and `INSERT OR REPLACE` statements.
 - `--csv-dir DIR` writes one CSV file per table.
 
-The same natural identity used by yawl is used as the relational primary key. No surrogate campaign, task, or attempt IDs are invented:
+The same natural identity used by yall is used as the relational primary key. No surrogate campaign, task, or attempt IDs are invented:
 
 | Table | Primary key |
 | --- | --- |
@@ -41,12 +41,12 @@ The export is a derived view. Campaign JSON remains the canonical computational 
 
 ## Useful SQLite commands
 
-The examples below assume the database is named `yawl.sqlite`. Each block is a complete shell command that can be copied and run directly.
+The examples below assume the database is named `yall.sqlite`. Each block is a complete shell command that can be copied and run directly.
 
 ### List campaigns and backends
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select campaign_id,name,backend from campaign order by campaign_id;'
 ```
 
@@ -55,7 +55,7 @@ Example output:
 ```text
 campaign_id                                   name                backend
 --------------------------------------------  ------------------  -------
-hello-yawl-20260902T143712Z-c95e7276          hello-yawl          condor
+hello-yall-20260902T143712Z-c95e7276          hello-yall          condor
 pi-map-reduce-20260903T174458Z-f07e15a4       pi-map-reduce       local
 root-muon-lifetime-20260903T174249Z-8f3f7155  root-muon-lifetime  local
 ```
@@ -63,7 +63,7 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  root-muon-lifetime  local
 ### Count recorded attempts by campaign
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select c.campaign_id,c.backend,count(a.attempt) as attempts
  from campaign c
  left join attempt a using (campaign_id)
@@ -76,17 +76,17 @@ Example output:
 ```text
 campaign_id                                   backend  attempts
 --------------------------------------------  -------  --------
-hello-yawl-20260902T143712Z-c95e7276          condor   0
+hello-yall-20260902T143712Z-c95e7276          condor   0
 pi-map-reduce-20260903T174458Z-f07e15a4       local    10
 root-muon-lifetime-20260903T174249Z-8f3f7155  local    25
 ```
 
 ### Show attempt timing and execution host
 
-This joins the post-execution attempt record to the launch provenance record using yawl's natural attempt key.
+This joins the post-execution attempt record to the launch provenance record using yall's natural attempt key.
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select campaign_id,task_name,attempt,state,real_seconds,hostname
  from attempt
  join attempt_provenance using (campaign_id,task_name,attempt)
@@ -107,7 +107,7 @@ root-muon-lifetime-20260903T174249Z-8f3f7155  simulate-00  1        completed  3
 ### Find failed attempts
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select campaign_id,task_name,attempt,returncode,failure_kind
  from attempt
  where state = "failed"
@@ -121,7 +121,7 @@ A clean archive simply prints the column headings and no rows.
 Replace the campaign and task names with the ones you want to inspect:
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select role,path,creation_sha256
  from task_input
  where campaign_id = "root-muon-lifetime-20260903T174249Z-8f3f7155"
@@ -132,7 +132,7 @@ sqlite3 -header -column yawl.sqlite \
 ### Find tasks whose executable hash differs across campaigns
 
 ```bash
-sqlite3 -header -column yawl.sqlite \
+sqlite3 -header -column yall.sqlite \
 'select task_name,sha256,count(*) as campaigns
  from task_executable
  where sha256 is not null

@@ -1,12 +1,12 @@
 import json
 import subprocess
 
-from yawl_run.model import load_spec
-from yawl_run.pbs_backend import pbs_queue_status, render_pbs, submit_pbs
+from yall_run.model import load_spec
+from yall_run.pbs_backend import pbs_queue_status, render_pbs, submit_pbs
 
 
 def test_pbs_render_submit_dependencies_and_status(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign pbs-test\n"
         "backend pbs\n"
@@ -25,7 +25,7 @@ def test_pbs_render_submit_dependencies_and_status(tmp_path, monkeypatch):
     assert spec.backend == "pbs"
     campaign_dir = render_pbs(spec, tmp_path / "campaigns")
 
-    first_script = (campaign_dir / "pbs" / "yawl_0000_first.sh").read_text()
+    first_script = (campaign_dir / "pbs" / "yall_0000_first.sh").read_text()
     assert "#PBS -l select=1:ncpus=4:mem=8gb" in first_script
     assert "#PBS -V" in first_script
     assert "max_attempts=2" in first_script
@@ -56,16 +56,16 @@ def test_pbs_render_submit_dependencies_and_status(tmp_path, monkeypatch):
             )
         raise AssertionError(command)
 
-    monkeypatch.setattr("yawl_run.pbs_backend.subprocess.run", fake_run)
+    monkeypatch.setattr("yall_run.pbs_backend.subprocess.run", fake_run)
     submit_pbs(campaign_dir)
 
-    assert calls[0] == ["qsub", "-h", "yawl_0000_first.sh"]
+    assert calls[0] == ["qsub", "-h", "yall_0000_first.sh"]
     assert calls[1] == [
         "qsub",
         "-h",
         "-W",
         "depend=afterok:301.server",
-        "yawl_0001_second.sh",
+        "yall_0001_second.sh",
     ]
     assert calls[2] == ["qrls", "301.server", "302.server"]
 
@@ -82,7 +82,7 @@ def test_pbs_render_submit_dependencies_and_status(tmp_path, monkeypatch):
 
 
 def test_pbs_submission_failure_cancels_held_jobs(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign pbs-fail\n"
         "backend pbs\n\n"
@@ -105,7 +105,7 @@ def test_pbs_submission_failure_cancels_held_jobs(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
         raise AssertionError(command)
 
-    monkeypatch.setattr("yawl_run.pbs_backend.subprocess.run", fake_run)
+    monkeypatch.setattr("yall_run.pbs_backend.subprocess.run", fake_run)
     try:
         submit_pbs(campaign_dir)
     except RuntimeError as exc:

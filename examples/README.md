@@ -1,4 +1,4 @@
-# yawl-run examples
+# yall-run examples
 
 These examples are small enough to inspect by hand but are chosen to exercise different workflow shapes. The numerical examples are demonstrations of orchestration first and numerical algorithms second; the Golomb ruler and ROOT examples add more realistic CPU-bound and scientific workloads.
 
@@ -61,7 +61,7 @@ converges extremely rapidly because $n!$ grows so quickly. Its terms can be spli
 
 ## Golomb ruler: cooperative branch-and-bound
 
-The [`golomb`](golomb/) example searches for an optimal 11-mark ruler with all pairwise distances distinct. Eight CPU-bound search shards explore disjoint parts of the tree while sharing a monotonically decreasing incumbent. A good solution found by one worker can therefore prune work in the others even though the search tasks have no yawl dependency edges between them.
+The [`golomb`](golomb/) example searches for an optimal 11-mark ruler with all pairwise distances distinct. Eight CPU-bound search shards explore disjoint parts of the tree while sharing a monotonically decreasing incumbent. A good solution found by one worker can therefore prune work in the others even though the search tasks have no yall dependency edges between them.
 
 The final reduction is intentionally stronger than merely selecting the shortest ruler found: it verifies that every shard exhausted the portion of its search space required to rule out anything shorter. This makes the example useful for distinguishing a successful empty branch from a failed task and for testing uneven, interacting parallel workloads.
 
@@ -77,4 +77,4 @@ The [`invariant-mass`](invariant-mass/) example looks more like ordinary HEP pro
 
 All four ROOT examples share the MCMC example's `run-pyroot.sh` launcher, so they use local PyROOT when it is available and otherwise fall back to the EIC Apptainer/Singularity environment.
 
-Each example has its own README with run instructions and more detail about why that calculation or search is useful for testing yawl-run.
+Each example has its own README with run instructions and more detail about why that calculation or search is useful for testing yall-run.

@@ -46,7 +46,7 @@ $$
 
 The example keeps every convergent as an exact Python `Fraction` until the final check.
 
-## Why this is a useful yawl example
+## Why this is a useful yall example
 
 Unlike the parallel pi example, this calculation is deliberately serial. Each approximation depends on the previous one, so the campaign is a deep dependency chain:
 
@@ -54,7 +54,7 @@ Unlike the parallel pi example, this calculation is deliberately serial. Each ap
 prepare -> seed -> step-01 -> step-02 -> ... -> step-12 -> check
 ```
 
-Increasing local `-j` cannot make the mathematical chain parallel. That makes it a useful test that yawl respects dependencies even when plenty of execution capacity is available.
+Increasing local `-j` cannot make the mathematical chain parallel. That makes it a useful test that yall respects dependencies even when plenty of execution capacity is available.
 
 ## Numerical character
 
@@ -67,9 +67,9 @@ It is not, however, a general-purpose high-performance square-root algorithm. Ne
 From this directory:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create -j 4 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 4 | yall-run start
 cat sqrt2-work/sqrt2.txt
 ```
 

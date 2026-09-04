@@ -3,14 +3,14 @@ import os
 import py_compile
 import subprocess
 
-from yawl_run.model import load_spec
+from yall_run.model import load_spec
 
 
 def test_mcmc_example_graph(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     example = root / "examples" / "mcmc"
     monkeypatch.chdir(example)
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
 
     assert spec.name == "pyroot-langau-mcmc"
     assert len(spec.tasks) == 12
@@ -101,7 +101,7 @@ def test_mcmc_pyroot_launcher_execs_payload_directly_in_image(tmp_path):
     fake_apptainer = tmp_path / "apptainer"
     fake_apptainer.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' \"$@\" > \"$YAWL_TEST_ARGS\"\n"
+        "printf '%s\\n' \"$@\" > \"$YALL_TEST_ARGS\"\n"
     )
     fake_apptainer.chmod(0o755)
 
@@ -109,9 +109,9 @@ def test_mcmc_pyroot_launcher_execs_payload_directly_in_image(tmp_path):
     env.update(
         {
             "PATH": f"{tmp_path}:{env.get('PATH', '')}",
-            "YAWL_MCMC_FORCE_EIC": "1",
-            "YAWL_MCMC_EIC_IMAGE": str(image),
-            "YAWL_TEST_ARGS": str(recorded),
+            "YALL_MCMC_FORCE_EIC": "1",
+            "YALL_MCMC_EIC_IMAGE": str(image),
+            "YALL_TEST_ARGS": str(recorded),
         }
     )
     subprocess.run(
@@ -137,16 +137,16 @@ def test_mcmc_pyroot_launcher_outer_eic_shell_uses_separator(tmp_path):
     fake_shell = tmp_path / "eic-shell"
     fake_shell.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' \"$@\" > \"$YAWL_TEST_ARGS\"\n"
+        "printf '%s\\n' \"$@\" > \"$YALL_TEST_ARGS\"\n"
     )
     fake_shell.chmod(0o755)
 
     env = os.environ.copy()
     env.update(
         {
-            "YAWL_MCMC_FORCE_EIC": "1",
-            "YAWL_MCMC_EIC_SHELL": str(fake_shell),
-            "YAWL_TEST_ARGS": str(recorded),
+            "YALL_MCMC_FORCE_EIC": "1",
+            "YALL_MCMC_EIC_SHELL": str(fake_shell),
+            "YALL_TEST_ARGS": str(recorded),
         }
     )
     subprocess.run(

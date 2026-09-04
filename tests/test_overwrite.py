@@ -6,15 +6,15 @@ import sys
 
 import pytest
 
-from yawl_run.campaign import (
+from yall_run.campaign import (
     begin_campaign,
     create_campaign,
     prepare_campaign_start,
     start_local,
 )
-from yawl_run.cli import main as cli_main
-from yawl_run.model import load_spec
-from yawl_run.worker import run_task
+from yall_run.cli import main as cli_main
+from yall_run.model import load_spec
+from yall_run.worker import run_task
 
 
 def _single_output_workflow(tmp_path: Path, *, overwrite: bool = False) -> Path:
@@ -25,8 +25,8 @@ def _single_output_workflow(tmp_path: Path, *, overwrite: bool = False) -> Path:
         "Path(sys.argv[1]).write_text('new\\n')\n"
     )
     overwrite_line = "    %overwrite\n" if overwrite else ""
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign overwrite-test\n"
         "backend local\n\n"
         "write:\n"
@@ -34,15 +34,15 @@ def _single_output_workflow(tmp_path: Path, *, overwrite: bool = False) -> Path:
         + overwrite_line
         + f"    {shlex.quote(sys.executable)} {shlex.quote(str(script))} @output.result\n"
     )
-    return yawlfile
+    return yallfile
 
 
 def test_existing_declared_output_blocks_campaign_before_start(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     with pytest.raises(ValueError, match="declared outputs already exist"):
@@ -55,11 +55,11 @@ def test_existing_declared_output_blocks_campaign_before_start(tmp_path):
 
 
 def test_failed_preflight_can_be_retried_with_start_overwrite(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     with pytest.raises(ValueError, match="start --overwrite"):
@@ -72,10 +72,10 @@ def test_failed_preflight_can_be_retried_with_start_overwrite(tmp_path):
 
 
 def test_worker_blocks_output_that_appears_after_campaign_start(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     prepare_campaign_start(campaign_dir)
@@ -95,10 +95,10 @@ def test_worker_blocks_output_that_appears_after_campaign_start(tmp_path):
 
 
 def test_task_overwrite_allows_existing_output(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path, overwrite=True)
+    yallfile = _single_output_workflow(tmp_path, overwrite=True)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
-    spec = load_spec(yawlfile)
+    spec = load_spec(yallfile)
     assert spec.tasks[0].overwrite is True
 
     campaign_dir = create_campaign(spec, tmp_path / "campaigns", backend="local")
@@ -110,11 +110,11 @@ def test_task_overwrite_allows_existing_output(tmp_path):
 
 
 def test_start_overwrite_allows_all_existing_outputs_and_is_recorded(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     assert cli_main(["start", "--overwrite", str(campaign_dir)]) == 0
@@ -124,11 +124,11 @@ def test_start_overwrite_allows_all_existing_outputs_and_is_recorded(tmp_path):
 
 
 def test_start_overwrite_accepts_campaign_path_from_stdin(tmp_path, monkeypatch):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     monkeypatch.setattr(sys, "stdin", io.StringIO(f"{campaign_dir}\n"))
@@ -143,8 +143,8 @@ def test_existing_declared_directory_is_protected_at_start(tmp_path):
     output_dir = tmp_path / "plots"
     output_dir.mkdir()
     marker = tmp_path / "ran.txt"
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign directory-output\n"
         "backend local\n\n"
         "plot:\n"
@@ -156,7 +156,7 @@ def test_existing_declared_directory_is_protected_at_start(tmp_path):
         + "\n"
     )
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     with pytest.raises(ValueError, match="declared outputs already exist"):
@@ -166,8 +166,8 @@ def test_existing_declared_directory_is_protected_at_start(tmp_path):
 
 
 def test_two_tasks_cannot_own_same_expanded_output(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign duplicate-output\n\n"
         "left:\n"
         "    @output result same.dat\n"
@@ -178,14 +178,14 @@ def test_two_tasks_cannot_own_same_expanded_output(tmp_path):
     )
 
     with pytest.raises(ValueError, match="owned by both 'left' and 'right'"):
-        load_spec(yawlfile)
+        load_spec(yallfile)
 
 
 def test_same_relative_output_in_different_task_cwds_is_allowed(tmp_path):
     (tmp_path / "left").mkdir()
     (tmp_path / "right").mkdir()
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign distinct-output\n\n"
         "left:\n"
         "    %cwd left\n"
@@ -197,16 +197,16 @@ def test_same_relative_output_in_different_task_cwds_is_allowed(tmp_path):
         "    echo right\n"
     )
 
-    spec = load_spec(yawlfile)
+    spec = load_spec(yallfile)
     assert len(spec.tasks) == 2
 
 
 def test_prepared_start_carries_overwrite_to_early_worker(tmp_path):
-    yawlfile = _single_output_workflow(tmp_path)
+    yallfile = _single_output_workflow(tmp_path)
     result = tmp_path / "result.txt"
     result.write_text("old\n")
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local"
+        load_spec(yallfile), tmp_path / "campaigns", backend="local"
     )
 
     prepare_campaign_start(campaign_dir, overwrite=True)

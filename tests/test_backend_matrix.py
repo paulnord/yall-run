@@ -1,10 +1,10 @@
 import json
 
-from yawl_run.campaign import create_campaign
-from yawl_run.condor_backend import render_condor
-from yawl_run.model import load_spec
-from yawl_run.pbs_backend import render_pbs
-from yawl_run.slurm_backend import render_slurm
+from yall_run.campaign import create_campaign
+from yall_run.condor_backend import render_condor
+from yall_run.model import load_spec
+from yall_run.pbs_backend import render_pbs
+from yall_run.slurm_backend import render_slurm
 
 
 def _manifest(campaign_dir):
@@ -15,7 +15,7 @@ def test_correlated_each_scientific_graph_is_identical_across_backends(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign backend-matrix\n\n"
         "pedestal-{ped}-{run}-{toa}:\n"

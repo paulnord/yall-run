@@ -674,7 +674,7 @@ def _instantiate(
     )
 
 
-def load_yawl_spec(source: Path) -> CampaignSpec:
+def load_yall_spec(source: Path) -> CampaignSpec:
     campaign_name, backend, condor, templates = _parse(source.read_text())
     template_map: Dict[str, _TaskTemplate] = {}
     for template in templates:

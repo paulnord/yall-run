@@ -33,8 +33,8 @@ This is the familiar HEP production pattern in miniature: independent event proc
 
 ```bash
 cd examples/invariant-mass
-yawl-run validate
-yawl-run plan
-yawl-run create -j 6 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 6 | yall-run start
 cat mass-work/summary.txt
 ```

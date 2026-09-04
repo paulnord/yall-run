@@ -1,12 +1,12 @@
 import json
 import subprocess
 
-from yawl_run.model import load_spec
-from yawl_run.slurm_backend import render_slurm, slurm_queue_status, submit_slurm
+from yall_run.model import load_spec
+from yall_run.slurm_backend import render_slurm, slurm_queue_status, submit_slurm
 
 
 def test_slurm_render_submit_dependencies_and_status(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign slurm-test\n"
         "backend slurm\n"
@@ -25,7 +25,7 @@ def test_slurm_render_submit_dependencies_and_status(tmp_path, monkeypatch):
     assert spec.backend == "slurm"
     campaign_dir = render_slurm(spec, tmp_path / "campaigns")
 
-    first_script = (campaign_dir / "slurm" / "yawl_0000_first.sh").read_text()
+    first_script = (campaign_dir / "slurm" / "yall_0000_first.sh").read_text()
     assert "#SBATCH --cpus-per-task=4" in first_script
     assert "#SBATCH --mem=8G" in first_script
     assert "max_attempts=2" in first_script
@@ -51,16 +51,16 @@ def test_slurm_render_submit_dependencies_and_status(tmp_path, monkeypatch):
             )
         raise AssertionError(command)
 
-    monkeypatch.setattr("yawl_run.slurm_backend.subprocess.run", fake_run)
+    monkeypatch.setattr("yall_run.slurm_backend.subprocess.run", fake_run)
     submit_slurm(campaign_dir)
 
-    assert calls[0] == ["sbatch", "--parsable", "--hold", "yawl_0000_first.sh"]
+    assert calls[0] == ["sbatch", "--parsable", "--hold", "yall_0000_first.sh"]
     assert calls[1] == [
         "sbatch",
         "--parsable",
         "--hold",
         "--dependency=afterok:101",
-        "yawl_0001_second.sh",
+        "yall_0001_second.sh",
     ]
     assert calls[2] == ["scontrol", "release", "101", "102"]
 
@@ -77,7 +77,7 @@ def test_slurm_render_submit_dependencies_and_status(tmp_path, monkeypatch):
 
 
 def test_slurm_submission_failure_cancels_held_jobs(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign slurm-fail\n"
         "backend slurm\n\n"
@@ -99,7 +99,7 @@ def test_slurm_submission_failure_cancels_held_jobs(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
         raise AssertionError(command)
 
-    monkeypatch.setattr("yawl_run.slurm_backend.subprocess.run", fake_run)
+    monkeypatch.setattr("yall_run.slurm_backend.subprocess.run", fake_run)
     try:
         submit_slurm(campaign_dir)
     except RuntimeError as exc:

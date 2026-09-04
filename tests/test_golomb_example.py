@@ -4,14 +4,14 @@ import shutil
 import subprocess
 import sys
 
-from yawl_run.model import load_spec
+from yall_run.model import load_spec
 
 
 def test_golomb_example_graph(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     example = root / "examples" / "golomb"
     monkeypatch.chdir(example)
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
 
     assert spec.name == "golomb-11-branch-and-bound"
     assert len(spec.tasks) == 11

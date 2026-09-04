@@ -43,9 +43,9 @@ The worker implementation intentionally favors transparency over numerical cleve
 From this directory:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create -j 8 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 8 | yall-run start
 cat sqrt2-binomial-work/sqrt2.txt
 cat sqrt2-binomial-work/check.txt
 ```
@@ -53,7 +53,7 @@ cat sqrt2-binomial-work/check.txt
 For a shared filesystem where small campaign-metadata operations are expensive, node-local campaign storage can make local execution much faster:
 
 ```bash
-yawl-run create -j 8 --campaigns-dir /tmp/yawl-campaigns | yawl-run start
+yall-run create -j 8 --campaigns-dir /tmp/yall-campaigns | yall-run start
 ```
 
 If that storage is temporary, preserve the campaign directory if you need its provenance records later.

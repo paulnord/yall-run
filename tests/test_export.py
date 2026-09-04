@@ -5,10 +5,10 @@ import shlex
 import sqlite3
 import sys
 
-from yawl_run.campaign import create_campaign, start_local
-from yawl_run.cli import main as cli_main
-from yawl_run.export import export_provenance, schema_sql
-from yawl_run.model import load_spec
+from yall_run.campaign import create_campaign, start_local
+from yall_run.cli import main as cli_main
+from yall_run.export import export_provenance, schema_sql
+from yall_run.model import load_spec
 
 
 def _campaign(tmp_path: Path) -> Path:
@@ -20,8 +20,8 @@ def _campaign(tmp_path: Path) -> Path:
         "import sys\n"
         "Path(sys.argv[2]).write_text(Path(sys.argv[1]).read_text().upper())\n"
     )
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign export-test\n"
         "@set run 308\n"
         "@set sample \"muon data\"\n\n"
@@ -36,7 +36,7 @@ def _campaign(tmp_path: Path) -> Path:
         "    echo @input.result\n"
     )
     campaign_dir = create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local", local_jobs=2
+        load_spec(yallfile), tmp_path / "campaigns", backend="local", local_jobs=2
     )
     start_local(campaign_dir)
     return campaign_dir
@@ -64,7 +64,7 @@ def test_schema_primary_keys_follow_campaign_task_attempt_identity():
 def test_export_writes_queryable_sqlite_and_csv(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     campaign_dir = _campaign(tmp_path)
-    sqlite_path = tmp_path / "yawl.sqlite"
+    sqlite_path = tmp_path / "yall.sqlite"
     csv_dir = tmp_path / "csv"
 
     campaigns, counts = export_provenance(
@@ -119,7 +119,7 @@ def test_export_writes_queryable_sqlite_and_csv(tmp_path, monkeypatch):
 def test_sql_dump_recreates_same_core_rows(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     campaign_dir = _campaign(tmp_path)
-    sql_path = tmp_path / "yawl.sql"
+    sql_path = tmp_path / "yall.sql"
     export_provenance([campaign_dir], sql_path=sql_path)
 
     with sqlite3.connect(":memory:") as db:

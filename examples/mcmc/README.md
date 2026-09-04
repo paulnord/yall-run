@@ -10,7 +10,7 @@ examples, the statistical engine here is ROOT itself:
 - each chain is written to its own ROOT file;
 - the chains are combined, checked with split R-hat, and plotted with ROOT.
 
-The workflow is intended both as a realistic yawl-run example and as a compact
+The workflow is intended both as a realistic yall-run example and as a compact
 starting point for MCMC studies of detector spectra.
 
 ## Model
@@ -122,11 +122,11 @@ execution environment in this order:
 
 1. If the host `python3` can import ROOT and expose
    `RooStats.MCMCCalculator`, use it directly.
-2. If `YAWL_MCMC_EIC_SHELL` names a generated outer `eic-shell` script, use it.
+2. If `YALL_MCMC_EIC_SHELL` names a generated outer `eic-shell` script, use it.
 3. Otherwise execute the payload directly in an EIC Apptainer/Singularity
    image.
 
-For the container path, the launcher checks `YAWL_MCMC_EIC_IMAGE`, then the
+For the container path, the launcher checks `YALL_MCMC_EIC_IMAGE`, then the
 LFHCal-compatible `LFHCAL_CONTAINER_IMAGE`, then defaults to the standard EIC
 CVMFS image used at sites such as BNL and JLab:
 
@@ -141,16 +141,16 @@ below should therefore require no separate ROOT installation. To select a
 different image in csh/tcsh:
 
 ```csh
-setenv YAWL_MCMC_EIC_IMAGE /path/to/eic_xl-image
+setenv YALL_MCMC_EIC_IMAGE /path/to/eic_xl-image
 ```
 
 If you already have a generated EIC shell instead:
 
 ```csh
-setenv YAWL_MCMC_EIC_SHELL /path/to/eic-shell
+setenv YALL_MCMC_EIC_SHELL /path/to/eic-shell
 ```
 
-Set `YAWL_MCMC_FORCE_EIC=1` if you want to use the container even when the host
+Set `YALL_MCMC_FORCE_EIC=1` if you want to use the container even when the host
 Python happens to have PyROOT.
 
 For a reproducibility-sensitive scientific calculation, prefer a pinned EIC
@@ -253,20 +253,20 @@ well while assigning noticeably different values to the two width components.
 
 ```bash
 cd examples/mcmc
-yawl-run validate
-yawl-run plan
-yawl-run create -j 8 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 8 | yall-run start
 cat mcmc-work/summary.txt
 ```
 
-For Condor, change the backend in the Yawlfile or use the supported backend
+For Condor, change the backend in the Yallfile or use the supported backend
 override when creating the campaign, then start the created campaign.
 
-On a high-latency shared filesystem, put the yawl campaign record on local
+On a high-latency shared filesystem, put the yall campaign record on local
 scratch if you are measuring local orchestration overhead:
 
 ```bash
-yawl-run create -j 8 --campaigns-dir /tmp/yawl-campaigns | yawl-run start
+yall-run create -j 8 --campaigns-dir /tmp/yall-campaigns | yall-run start
 ```
 
 The scientific outputs still go to `mcmc-work/` in the example directory.
@@ -276,6 +276,6 @@ The scientific outputs still go to `mcmc-work/` in the example directory.
 The generated dataset has a fixed seed. Each MCMC chain has a separate fixed
 seed derived from its descriptor filename and recorded in ROOT metadata, so
 rerunning the same example with the same ROOT version and execution image should
-reproduce the same stochastic calculation closely. ROOT/image details and yawl
-task provenance remain separate concerns: yawl records how the tasks ran, while
+reproduce the same stochastic calculation closely. ROOT/image details and yall
+task provenance remain separate concerns: yall records how the tasks ran, while
 the ROOT files record the statistical samples they produced.

@@ -2,13 +2,13 @@ import hashlib
 import json
 from pathlib import Path
 
-from yawl_run.campaign import INPUT_HASH_MAX_BYTES, create_campaign
-from yawl_run.model import load_spec
+from yall_run.campaign import INPUT_HASH_MAX_BYTES, create_campaign
+from yall_run.model import load_spec
 
 
 def test_campaign_records_set_values(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign set-provenance\n"
         "@set run 308\n"
         "@set label \"muon sample\"\n\n"
@@ -16,7 +16,7 @@ def test_campaign_records_set_values(tmp_path):
         "    echo {run}\n"
     )
 
-    spec = load_spec(yawlfile)
+    spec = load_spec(yallfile)
     assert dict(spec.set_values) == {"run": "308", "label": "muon sample"}
 
     campaign_dir = create_campaign(spec, tmp_path / "campaigns")
@@ -27,15 +27,15 @@ def test_campaign_records_set_values(tmp_path):
 def test_small_existing_declared_input_gets_sha256(tmp_path):
     input_path = tmp_path / "small.dat"
     input_path.write_bytes(b"small scientific input\n")
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign small-input-hash\n\n"
         "work:\n"
         "    @input data small.dat\n"
         "    echo @input.data\n"
     )
 
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     input_record = manifest["tasks"]["work"]["inputs"][0]
 
@@ -55,15 +55,15 @@ def test_large_declared_input_records_size_but_skips_hash(tmp_path):
     with input_path.open("wb") as handle:
         handle.seek(INPUT_HASH_MAX_BYTES)
         handle.write(b"x")
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign large-input-hash\n\n"
         "work:\n"
         "    @input data large.root\n"
         "    echo @input.data\n"
     )
 
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     fingerprint = manifest["tasks"]["work"]["inputs"][0]["creation_fingerprint"]
 
@@ -74,15 +74,15 @@ def test_large_declared_input_records_size_but_skips_hash(tmp_path):
 
 
 def test_missing_or_future_input_has_no_creation_fingerprint(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign future-input\n\n"
         "work:\n"
         "    @input data produced-later.dat\n"
         "    echo @input.data\n"
     )
 
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     input_record = manifest["tasks"]["work"]["inputs"][0]
 

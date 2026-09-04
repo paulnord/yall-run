@@ -1,10 +1,10 @@
 # Quick start
 
-This guide gets a small yawl-run workflow from a `Yawlfile` to a completed campaign. For the full language reference, see [YAWLFILE.md](YAWLFILE.md).
+This guide gets a small yall-run workflow from a `Yallfile` to a completed campaign. For the full language reference, see [YALLFILE.md](YALLFILE.md).
 
 ## Install
 
-yawl-run requires Python 3.9 or newer.
+yall-run requires Python 3.9 or newer.
 
 From a checkout of the repository:
 
@@ -12,12 +12,12 @@ From a checkout of the repository:
 python3 -m pip install -e .
 ```
 
-## Write a Yawlfile
+## Write a Yallfile
 
-Create a file named exactly `Yawlfile`:
+Create a file named exactly `Yallfile`:
 
 ```text
-campaign hello-yawl
+campaign hello-yall
 backend local
 
 left:
@@ -30,13 +30,13 @@ finish: left right
     echo both parents finished
 ```
 
-A Yawlfile is a reusable workflow recipe. The example has three tasks. `finish` depends on both `left` and `right`.
+A Yallfile is a reusable workflow recipe. The example has three tasks. `finish` depends on both `left` and `right`.
 
 ## Validate and inspect
 
 ```bash
-yawl-run validate
-yawl-run plan
+yall-run validate
+yall-run plan
 ```
 
 `validate` checks the workflow definition. `plan` shows the expanded tasks without creating a campaign.
@@ -44,7 +44,7 @@ yawl-run plan
 ## Create a campaign
 
 ```bash
-yawl-run create
+yall-run create
 ```
 
 `create` freezes the expanded workflow into a new campaign directory under `./campaigns` and prints that directory. It does not run anything.
@@ -52,7 +52,7 @@ yawl-run create
 To place new campaigns somewhere else:
 
 ```bash
-yawl-run create --campaigns-dir /path/to/campaigns
+yall-run create --campaigns-dir /path/to/campaigns
 ```
 
 ## Start it
@@ -60,38 +60,38 @@ yawl-run create --campaigns-dir /path/to/campaigns
 Start the exact campaign printed by `create`:
 
 ```bash
-yawl-run start ./campaigns/<campaign-id>
+yall-run start ./campaigns/<campaign-id>
 ```
 
 Or pipe the campaign path directly from `create` into `start`:
 
 ```bash
-yawl-run create | yawl-run start
+yall-run create | yall-run start
 ```
 
 A campaign can be started only once. To run the recipe again, create another campaign.
 
 ## Run local tasks in parallel
 
-Local campaigns default to one active yawl task at a time. Freeze a different concurrency limit when creating the campaign:
+Local campaigns default to one active yall task at a time. Freeze a different concurrency limit when creating the campaign:
 
 ```bash
-yawl-run create --backend local -j 4 | yawl-run start
+yall-run create --backend local -j 4 | yall-run start
 ```
 
-`-j` controls how many dependency-ready yawl tasks may run concurrently. It is a local-backend option, not a CPU request for an individual task.
+`-j` controls how many dependency-ready yall tasks may run concurrently. It is a local-backend option, not a CPU request for an individual task.
 
 ## Run the same workflow on HTCondor
 
-If HTCondor and DAGMan are available, create a Condor campaign from the same Yawlfile by overriding the backend:
+If HTCondor and DAGMan are available, create a Condor campaign from the same Yallfile by overriding the backend:
 
 ```bash
-yawl-run create --backend condor | yawl-run start
+yall-run create --backend condor | yall-run start
 ```
 
 `create` freezes the campaign and renders its DAG and submit files without submitting anything. `start` then submits that exact campaign through DAGMan, preserving the same task dependencies used by the local backend.
 
-Local `-j` does not apply to queued backends. Requests for an individual queued task belong in the Yawlfile instead:
+Local `-j` does not apply to queued backends. Requests for an individual queued task belong in the Yallfile instead:
 
 ```text
 analysis:
@@ -105,14 +105,14 @@ For scheduler details, site wrappers, and the experimental Slurm and PBS adapter
 ## Check status
 
 ```bash
-yawl-run status ./campaigns/<campaign-id>
+yall-run status ./campaigns/<campaign-id>
 ```
 
 Task stdout and stderr are kept with each task attempt rather than mixed into the coordinator output.
 
 ## Add real inputs, outputs, and resources
 
-Named data and task policy live directly in the Yawlfile:
+Named data and task policy live directly in the Yallfile:
 
 ```text
 convert:
@@ -130,7 +130,7 @@ convert:
 
 ## Where next?
 
-- [Yawlfile language reference](YAWLFILE.md)
+- [Yallfile language reference](YALLFILE.md)
 - [Campaign lifecycle and campaign directories](CAMPAIGNS.md)
 - [Local, Condor, Slurm, and PBS backends](BACKENDS.md)
 - [Campaign and attempt provenance](PROVENANCE.md)

@@ -1,8 +1,8 @@
-# Yawlfile syntax
+# Yallfile syntax
 
-`Yawlfile` is the reusable workflow description for yawl-run. It plays roughly the same role as a Makefile: it describes how work fits together, but it is not itself a particular execution.
+`Yallfile` is the reusable workflow description for yall-run. It plays roughly the same role as a Makefile: it describes how work fits together, but it is not itself a particular execution.
 
-A concrete execution is a **campaign** created from the Yawlfile.
+A concrete execution is a **campaign** created from the Yallfile.
 
 ## Smallest useful file
 
@@ -24,20 +24,20 @@ A task header is `task-name:` followed by zero or more parent task names. Indent
 
 Backends are `local`, `condor`, `slurm`, and `pbs`. Slurm and PBS support is experimental.
 
-If the file is named exactly `Yawlfile`, the specification argument is optional:
+If the file is named exactly `Yallfile`, the specification argument is optional:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create
+yall-run validate
+yall-run plan
+yall-run create
 ```
 
-`Yawlfile` is the canonical default spelling. On a case-sensitive filesystem, `yawlfile` and `YAWLFILE` are different filenames. A differently named workflow file can be supplied explicitly.
+`Yallfile` is the canonical default spelling. On a case-sensitive filesystem, `yallfile` and `YALLFILE` are different filenames. A differently named workflow file can be supplied explicitly.
 
 `create` freezes the expanded task graph into a new campaign directory and runs nothing. By default, new campaign directories are created under `./campaigns`. Choose another container directory with:
 
 ```bash
-yawl-run create --campaigns-dir /path/to/campaigns
+yall-run create --campaigns-dir /path/to/campaigns
 ```
 
 `--campaigns-dir` names the directory that contains campaign directories; it is not the path of the individual campaign itself.
@@ -45,23 +45,23 @@ yawl-run create --campaigns-dir /path/to/campaigns
 Launch the exact campaign printed by `create` with:
 
 ```bash
-yawl-run start campaigns/<campaign-id>
+yall-run start campaigns/<campaign-id>
 ```
 
 Because `create` writes only that campaign path to standard output, it can be piped directly into `start`:
 
 ```bash
-yawl-run create | yawl-run start
+yall-run create | yall-run start
 ```
 
 When the `CAMPAIGN_DIR` argument is omitted, `start` reads exactly one nonblank campaign path from standard input. An explicit argument always takes precedence.
 
-A campaign can be started only once. To run the recipe again, create another campaign from the Yawlfile.
+A campaign can be started only once. To run the recipe again, create another campaign from the Yallfile.
 
-For a local campaign, use `-j N` on `create` to freeze the maximum number of concurrently active yawl tasks:
+For a local campaign, use `-j N` on `create` to freeze the maximum number of concurrently active yall tasks:
 
 ```bash
-yawl-run create --backend local -j 4 | yawl-run start
+yall-run create --backend local -j 4 | yall-run start
 ```
 
 Local campaigns default to one task at a time. `-j` is intentionally invalid for queued backends. Processor requests belong to `%cpus` task policy instead.
@@ -88,7 +88,7 @@ merge:
     ./merge @input.part -o @output.merged
 ```
 
-Input globs are resolved when the Yawlfile is loaded during campaign creation, so the resulting input list is frozen before execution.
+Input globs are resolved when the Yallfile is loaded during campaign creation, so the resulting input list is frozen before execution.
 
 ### Static named values
 
@@ -107,7 +107,7 @@ Known `{name}` placeholders from `@set` are substituted before task patterns are
 
 ### Import a named value from the environment
 
-Use `@env NAME` when a value should come from the environment that runs `yawl-run validate`, `plan`, or `create`:
+Use `@env NAME` when a value should come from the environment that runs `yall-run validate`, `plan`, or `create`:
 
 ```text
 @env DATA_ROOT
@@ -125,13 +125,13 @@ For example, a shell could provide:
 export DATA_ROOT=/data/experiment/raw
 ```
 
-`@env DATA_ROOT` reads that value while the Yawlfile is parsed. The value participates in the same `{DATA_ROOT}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
+`@env DATA_ROOT` reads that value while the Yallfile is parsed. The value participates in the same `{DATA_ROOT}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
 
-This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yawl-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `DATA_ROOT` later does not change that campaign.
+This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yall-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `DATA_ROOT` later does not change that campaign.
 
-The archived `Yawlfile` remains byte-for-byte the source file and still contains the literal `@env DATA_ROOT` line.
+The archived `Yallfile` remains byte-for-byte the source file and still contains the literal `@env DATA_ROOT` line.
 
-A required imported variable must exist. If it is absent, `validate`, `plan`, and `create` fail with a message naming the missing environment variable; yawl-run does not substitute an empty string.
+A required imported variable must exist. If it is absent, `validate`, `plan`, and `create` fail with a message naming the missing environment variable; yall-run does not substitute an empty string.
 
 `@set` behavior is unchanged. `@set` and `@env` share the same placeholder namespace, so normal source order determines the value if the same name is deliberately declared more than once.
 
@@ -170,7 +170,7 @@ backend condor
 %wrapper /path/to/run-in-container.sh
 ```
 
-When the campaign is created, yawl-run archives the wrapper in the campaign's `environment/` directory and records its source path, size, and SHA-256. Queued tasks then invoke the bundled yawl worker through that archived copy, so the execution wrapper itself becomes part of the frozen campaign environment.
+When the campaign is created, yall-run archives the wrapper in the campaign's `environment/` directory and records its source path, size, and SHA-256. Queued tasks then invoke the bundled yall worker through that archived copy, so the execution wrapper itself becomes part of the frozen campaign environment.
 
 The same mechanism is used by the Condor, Slurm, and PBS backends. For scheduler-specific details and the interaction with `%getenv`, see [BACKENDS.md](BACKENDS.md#execution-wrappers).
 
@@ -187,13 +187,13 @@ analysis:
 
 `%overwrite` never deletes, truncates, empties, or otherwise modifies an existing output itself. It only permits the task command to run. The command remains responsible for whatever replacement behavior it performs.
 
-The backend is frozen into the campaign at `create` time. `yawl-run create --backend local`, `--backend condor`, `--backend slurm`, or `--backend pbs` can deliberately override the Yawlfile for a particular campaign.
+The backend is frozen into the campaign at `create` time. `yall-run create --backend local`, `--backend condor`, `--backend slurm`, or `--backend pbs` can deliberately override the Yallfile for a particular campaign.
 
 `-j` and `%cpus` are deliberately different:
 
 - `-j N` is local campaign concurrency: at most `N` dependency-ready tasks are active at once.
 - `%cpus N` is a per-task resource request for queued execution.
-- local yawl currently records `%cpus` but does not use it as a local scheduling weight.
+- local yall currently records `%cpus` but does not use it as a local scheduling weight.
 
 ## Declared output protection
 
@@ -210,7 +210,7 @@ analysis:
     ./Analyze ...
 ```
 
-If either `results/run308.root` or `results/run308-plots` already exists, `yawl-run start` refuses the campaign by default. The campaign remains unstarted, so the user can inspect or remove the conflicting product, or explicitly retry the start with overwrite permission.
+If either `results/run308.root` or `results/run308-plots` already exists, `yall-run start` refuses the campaign by default. The campaign remains unstarted, so the user can inspect or remove the conflicting product, or explicitly retry the start with overwrite permission.
 
 There are two ways to permit replacement:
 
@@ -224,16 +224,16 @@ analysis:
 permits replacement for that task, while:
 
 ```bash
-yawl-run start --overwrite campaigns/<campaign-id>
+yall-run start --overwrite campaigns/<campaign-id>
 ```
 
 permits pre-existing declared outputs for every task in that campaign start. The campaign-wide choice is recorded in `start.json`.
 
-Neither form causes yawl-run to remove existing data. They only disable the existence guard for the affected task or campaign start.
+Neither form causes yall-run to remove existing data. They only disable the existence guard for the affected task or campaign start.
 
 The worker repeats the output existence check immediately before each task command. This catches a product that appears after the campaign-wide start preflight but before that particular task becomes runnable. Such an attempt records failure kind `outputs_exist` and does not launch the command.
 
-Two different expanded tasks may not declare the same output path. This is rejected while the Yawlfile is validated, regardless of `%overwrite`, because one campaign product has one owning task.
+Two different expanded tasks may not declare the same output path. This is rejected while the Yallfile is validated, regardless of `%overwrite`, because one campaign product has one owning task.
 
 Automatic `%retry` follows the same worker-level rule. If a failed attempt leaves a declared output behind, the next attempt will stop at the output guard unless the task has `%overwrite`, the campaign was started with `--overwrite`, or the failed command cleaned up its partial product itself.
 
@@ -275,7 +275,7 @@ converted/data138.root
 converted/data142.root
 ```
 
-yawl-run expands the rule to three ordinary tasks:
+yall-run expands the rule to three ordinary tasks:
 
 ```text
 pedestal-123
@@ -291,7 +291,7 @@ pedestal/run138.root
 pedestal/run142.root
 ```
 
-Each task receives one matched `raw` input and produces its own declared output. Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yawlfile syntax.
+Each task receives one matched `raw` input and produces its own declared output. Plain placeholders currently capture arbitrary non-path text. Thus `data123a.root` also matches `data{run}.root`, binding `run=123a`. Numeric-only typed captures are not yet part of the Yallfile syntax.
 
 The input set is discovered and frozen when the campaign is created. A file-pattern `@each` that matches nothing is an error.
 
@@ -341,7 +341,7 @@ ped=328 run=329 toa=2
 ped=330 run=331 toa=2
 ```
 
-Rows are correlated. Yawl does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names, the field names must match the placeholders in the task name, and duplicate rows are rejected clearly.
+Rows are correlated. Yall does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names, the field names must match the placeholders in the task name, and duplicate rows are rejected clearly.
 
 A patterned child inherits the complete row normally:
 
@@ -367,7 +367,7 @@ and existing file discovery remains unchanged:
 @each raw raw/Run{run}.h2g
 ```
 
-After `yawl-run create`, all forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
+After `yall-run create`, all forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
 
 ## Patterned dependencies
 
@@ -397,14 +397,14 @@ summary: pedestal-{run}
 
 The resulting `summary` task depends on every expanded pedestal task, and its `@input.pedestal` collection contains the corresponding files.
 
-`examples/pi/Yawlfile` is a complete map-reduce example. Eight `partial-{chunk}` tasks run the same Python worker against different range files, then one `sum` task fans in all eight outputs.
+`examples/pi/Yallfile` is a complete map-reduce example. Eight `partial-{chunk}` tasks run the same Python worker against different range files, then one `sum` task fans in all eight outputs.
 
 ## Campaign records
 
-When a campaign is created, the exact source Yawlfile and the frozen expanded workflow are stored with the campaign:
+When a campaign is created, the exact source Yallfile and the frozen expanded workflow are stored with the campaign:
 
 ```text
-Yawlfile
+Yallfile
 campaign.json
 start.json
 state/
@@ -413,7 +413,7 @@ state/
     sum.json
 ```
 
-The archived `Yawlfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, named values imported with `@set` or `@env`, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
+The archived `Yallfile` is the exact input used at campaign creation. `campaign.json` records its original source path and SHA-256 alongside campaign identity, creation environment, named values imported with `@set` or `@env`, execution policy, task order, and the frozen definition of each task. Task definitions include dependencies, command, cwd, resources, inputs, outputs, and overwrite policy.
 
 The files under `state/` are mutable bookkeeping only. They contain the current task state, attempt count, and, after execution, the most recent return code. Keeping these files small lets workers update state independently without duplicating the full task definition.
 
@@ -421,7 +421,7 @@ The files under `state/` are mutable bookkeeping only. They contain the current 
 
 ## Portable attempt provenance
 
-Before each task attempt begins, yawl writes:
+Before each task attempt begins, yall writes:
 
 ```text
 <task>_attempt_001/provenance.json
@@ -432,15 +432,15 @@ This launch-provenance record contains the campaign identity, task and attempt i
 The task process receives environment variables including:
 
 ```text
-YAWL_CAMPAIGN_ID
-YAWL_CAMPAIGN_NAME
-YAWL_CAMPAIGN_DIR
-YAWL_BACKEND
-YAWL_TASK
-YAWL_ATTEMPT
-YAWL_PROVENANCE
+YALL_CAMPAIGN_ID
+YALL_CAMPAIGN_NAME
+YALL_CAMPAIGN_DIR
+YALL_BACKEND
+YALL_TASK
+YALL_ATTEMPT
+YALL_PROVENANCE
 ```
 
-`YAWL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yawl-run remains format-agnostic.
+`YALL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yall-run remains format-agnostic.
 
 `attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, pre-launch output observations, and final observed output metadata. A worker-level task stopped by the output guard records failure kind `outputs_exist` and no command return code because the command was never launched.

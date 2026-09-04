@@ -3,16 +3,16 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "yawl-run"
+name = "yall-run"
 version = "0.8.1"
-description = "Yet Another Workflow Layer: lightweight campaign execution and provenance"
+description = "Yet Another Launch Layer: lightweight campaign execution and provenance"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [{name = "Paul Nord"}]
 
 [project.scripts]
-yawl-run = "yawl_run.cli:main"
+yall-run = "yall_run.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

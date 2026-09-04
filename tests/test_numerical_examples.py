@@ -2,8 +2,8 @@ import math
 from pathlib import Path
 import shutil
 
-from yawl_run.campaign import campaign_status, create_campaign, start_local
-from yawl_run.model import load_spec
+from yall_run.campaign import campaign_status, create_campaign, start_local
+from yall_run.model import load_spec
 
 
 def _copy_example(tmp_path: Path, name: str) -> Path:
@@ -21,7 +21,7 @@ def test_sqrt2_dependency_chain_example(tmp_path, monkeypatch, capsys):
     example = _copy_example(tmp_path, "sqrt2")
     monkeypatch.chdir(example)
 
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
     assert len(spec.tasks) == 15
     tasks = {task.name: task for task in spec.tasks}
     assert tasks["step-01"].parents == ("seed",)
@@ -53,7 +53,7 @@ def test_sqrt2_binomial_map_reduce_example(tmp_path, monkeypatch, capsys):
     example = _copy_example(tmp_path, "sqrt2-binomial")
     monkeypatch.chdir(example)
 
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
     assert len(spec.tasks) == 11
     assert [task.name for task in spec.tasks[:2]] == ["prepare", "partial-000"]
     tasks = {task.name: task for task in spec.tasks}
@@ -90,7 +90,7 @@ def test_e_hierarchical_reduction_example(tmp_path, monkeypatch, capsys):
     example = _copy_example(tmp_path, "e")
     monkeypatch.chdir(example)
 
-    spec = load_spec("Yawlfile")
+    spec = load_spec("Yallfile")
     assert len(spec.tasks) == 17
     tasks = {task.name: task for task in spec.tasks}
     assert tasks["pair-0"].parents == ("terms-00", "terms-01")

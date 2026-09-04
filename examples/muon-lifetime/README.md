@@ -35,9 +35,9 @@ This makes the workflow structure visible in the scientific output: eight indepe
 
 ```bash
 cd examples/muon-lifetime
-yawl-run validate
-yawl-run plan
-yawl-run create -j 8 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 8 | yall-run start
 cat muon-work/summary.txt
 ```
 

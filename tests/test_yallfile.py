@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from yawl_run.campaign import create_campaign
-from yawl_run.model import load_spec
+from yall_run.campaign import create_campaign
+from yall_run.model import load_spec
 
 
 def _write(path: Path, text: str) -> Path:
@@ -15,7 +15,7 @@ def _write(path: Path, text: str) -> Path:
 def test_named_refs_and_resources(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign demo
 backend condor
 %memory 3GB
@@ -50,7 +50,7 @@ def test_each_maps_one_input_to_one_output(tmp_path, monkeypatch):
     for run in ("137", "138", "142"):
         (tmp_path / "converted" / f"2026_PST10_raw_{run}.root").touch()
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign pedestal-map
 backend condor
 @set dataset 2026_PST10
@@ -81,7 +81,7 @@ pedestal-{run}:
 def test_each_explicit_values_select_exact_family(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign selected-runs
 
 convert-{run}:
@@ -117,7 +117,7 @@ convert-{run}:
 def test_each_explicit_values_are_frozen_in_campaign_json(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign selected-runs
 
 convert-{run}:
@@ -145,7 +145,7 @@ convert-{run}:
 def test_each_explicit_name_must_match_task_placeholder(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign bad-each
 
 convert-{run}:
@@ -160,7 +160,7 @@ convert-{run}:
 def test_each_correlated_rows_preserve_tuple_relationships(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign correlated-runs
 
 pedestal-{ped}-{run}-{toa}:
@@ -196,7 +196,7 @@ pedestal-{ped}-{run}-{toa}:
 def test_each_correlated_rows_propagate_to_patterned_child(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign correlated-chain
 
 pedestal-{ped}-{run}-{toa}:
@@ -226,7 +226,7 @@ transfer-{ped}-{run}-{toa}: pedestal-{ped}-{run}-{toa}
 def test_each_correlated_rows_require_exact_width(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign bad-width
 
 thing-{ped}-{run}-{toa}:
@@ -241,7 +241,7 @@ thing-{ped}-{run}-{toa}:
 def test_each_correlated_rows_reject_duplicates(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign duplicate-row
 
 thing-{ped}-{run}-{toa}:
@@ -258,7 +258,7 @@ def test_env_value_substitutes_into_paths_and_is_recorded(tmp_path, monkeypatch)
     raw_root = tmp_path / "shared" / "raw"
     monkeypatch.setenv("LFHCAL_RAW", str(raw_root))
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign env-path
 @env LFHCAL_RAW
 
@@ -286,14 +286,14 @@ convert-{run}:
     assert manifest["tasks"]["convert-308"]["inputs"][0]["path"] == str(
         raw_root / "Run308.h2g"
     )
-    assert "@env LFHCAL_RAW" in (campaign_dir / "Yawlfile").read_text()
+    assert "@env LFHCAL_RAW" in (campaign_dir / "Yallfile").read_text()
 
 
 def test_env_requires_variable_to_exist(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("LFHCAL_RAW", raising=False)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign missing-env
 @env LFHCAL_RAW
 
@@ -309,7 +309,7 @@ def test_set_behavior_is_unchanged_next_to_env(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATA_ROOT", "/shared/data")
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign set-and-env
 @set dataset beam2026
 @env DATA_ROOT
@@ -332,7 +332,7 @@ def test_patterned_child_inherits_family(tmp_path, monkeypatch):
     for run in ("137", "138"):
         (tmp_path / "converted" / f"raw_{run}.root").touch()
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign chain
 
 pedestal-{run}:
@@ -362,7 +362,7 @@ def test_static_task_fans_in_pattern_family(tmp_path, monkeypatch):
     for run in ("137", "138"):
         (tmp_path / "converted" / f"raw_{run}.root").touch()
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign fanin
 
 pedestal-{run}:
@@ -392,7 +392,7 @@ summary: pedestal-{run}
 def test_shell_escape_hatch_quotes_named_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign shell
 
 report:
@@ -407,7 +407,7 @@ report:
 def test_bad_named_reference_is_rejected(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     spec_file = _write(
-        tmp_path / "Yawlfile",
+        tmp_path / "Yallfile",
         """campaign bad-ref
 
 thing:

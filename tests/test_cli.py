@@ -3,13 +3,13 @@ import json
 from pathlib import Path
 import sys
 
-from yawl_run.cli import main
-from yawl_run.campaign import campaign_status
+from yall_run.cli import main
+from yall_run.campaign import campaign_status
 
 
 def test_cli_create_then_start_one_campaign(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign lifecycle\n"
         "backend local\n\n"
         "hello:\n"
@@ -39,7 +39,7 @@ def test_cli_create_then_start_one_campaign(tmp_path, monkeypatch, capsys):
 
 def test_cli_start_reads_one_campaign_path_from_stdin(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign piped-start\n"
         "backend local\n\n"
         "hello:\n"
@@ -69,7 +69,7 @@ def test_cli_start_rejects_multiple_stdin_paths(monkeypatch, capsys):
 
 def test_cli_plan_json_emits_expanded_machine_readable_plan(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign structured-plan\n"
         "backend local\n\n"
         "prepare:\n"
@@ -88,7 +88,7 @@ def test_cli_plan_json_emits_expanded_machine_readable_plan(tmp_path, monkeypatc
     data = json.loads(capsys.readouterr().out)
     assert data["name"] == "structured-plan"
     assert data["backend"] == "local"
-    assert data["source"] == str(tmp_path / "Yawlfile")
+    assert data["source"] == str(tmp_path / "Yallfile")
     assert [task["name"] for task in data["tasks"]] == ["prepare", "analyze"]
     analyze = data["tasks"][1]
     assert analyze["parents"] == ["prepare"]
@@ -102,7 +102,7 @@ def test_cli_plan_json_emits_expanded_machine_readable_plan(tmp_path, monkeypatc
 
 def test_cli_plan_dot_emits_expanded_dependency_graph(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign dot-plan\n\n"
         "left:\n"
         "    echo left\n\n"
@@ -114,7 +114,7 @@ def test_cli_plan_dot_emits_expanded_dependency_graph(tmp_path, monkeypatch, cap
 
     assert main(["plan", "--dot"]) == 0
     output = capsys.readouterr().out
-    assert output.startswith("digraph yawl {\n")
+    assert output.startswith("digraph yall {\n")
     assert '  "left";' in output
     assert '  "right";' in output
     assert '  "finish";' in output
@@ -124,7 +124,7 @@ def test_cli_plan_dot_emits_expanded_dependency_graph(tmp_path, monkeypatch, cap
 
 def test_cli_rejects_j_for_condor_create(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign condor-j\n"
         "backend condor\n\n"
         "hello:\n"
@@ -138,7 +138,7 @@ def test_cli_rejects_j_for_condor_create(tmp_path, monkeypatch, capsys):
 
 def test_cli_local_failure_returns_error_status(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign failing\n"
         "backend local\n\n"
         "bad:\n"
@@ -156,7 +156,7 @@ def test_cli_local_failure_returns_error_status(tmp_path, monkeypatch, capsys):
 
 def test_cli_rejects_retired_root_option(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Yawlfile").write_text(
+    (tmp_path / "Yallfile").write_text(
         "campaign no-root-option\n"
         "backend local\n\n"
         "hello:\n"

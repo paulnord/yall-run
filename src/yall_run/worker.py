@@ -201,7 +201,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.exists():
-        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+        raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
     task = _task_definition(campaign_dir, manifest, task_name)
 
@@ -225,7 +225,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "id": manifest.get("id"),
             "name": manifest.get("name"),
             "backend": manifest.get("backend"),
-            "yawl_version": manifest.get("yawl_version"),
+            "yall_version": manifest.get("yall_version"),
             "directory": str(campaign_dir),
         },
         "task": {
@@ -256,7 +256,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if missing_inputs:
         stdout_path.touch()
         stderr_path.write_text(
-            "yawl-worker: declared input missing: " + ", ".join(missing_inputs) + "\n"
+            "yall-worker: declared input missing: " + ", ".join(missing_inputs) + "\n"
         )
         finished = _utc_now()
         outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
@@ -292,7 +292,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if existing_outputs and not (task_overwrite or campaign_overwrite):
         stdout_path.touch()
         stderr_path.write_text(
-            "yawl-worker: declared output already exists: "
+            "yall-worker: declared output already exists: "
             + ", ".join(existing_outputs)
             + "\n"
         )
@@ -343,13 +343,13 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     env = os.environ.copy()
     env.update({
-        "YAWL_CAMPAIGN_ID": str(manifest.get("id", "")),
-        "YAWL_CAMPAIGN_NAME": str(manifest.get("name", "")),
-        "YAWL_CAMPAIGN_DIR": str(campaign_dir),
-        "YAWL_BACKEND": str(manifest.get("backend", "")),
-        "YAWL_TASK": task_name,
-        "YAWL_ATTEMPT": str(number),
-        "YAWL_PROVENANCE": str(provenance_path),
+        "YALL_CAMPAIGN_ID": str(manifest.get("id", "")),
+        "YALL_CAMPAIGN_NAME": str(manifest.get("name", "")),
+        "YALL_CAMPAIGN_DIR": str(campaign_dir),
+        "YALL_BACKEND": str(manifest.get("backend", "")),
+        "YALL_TASK": task_name,
+        "YALL_ATTEMPT": str(number),
+        "YALL_PROVENANCE": str(provenance_path),
     })
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
@@ -372,7 +372,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         failure = {"kind": "missing_outputs", "paths": missing_outputs}
         with stderr_path.open("a") as err:
             err.write(
-                "yawl-worker: declared output missing: "
+                "yall-worker: declared output missing: "
                 + ", ".join(missing_outputs)
                 + "\n"
             )
@@ -414,12 +414,12 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     if len(values) != 2:
-        print("usage: yawl_worker.py CAMPAIGN_DIR TASK", file=sys.stderr)
+        print("usage: yall_worker.py CAMPAIGN_DIR TASK", file=sys.stderr)
         return 2
     try:
         return run_task(values[0], values[1])
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        print(f"yawl-worker: {exc}", file=sys.stderr)
+        print(f"yall-worker: {exc}", file=sys.stderr)
         return 2
 
 

@@ -35,8 +35,8 @@ The three plots show the whole fan-out/fan-in story: one shared data set, many i
 
 ```bash
 cd examples/z-scan
-yawl-run validate
-yawl-run plan
-yawl-run create -j 8 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 8 | yall-run start
 cat z-work/summary.txt
 ```

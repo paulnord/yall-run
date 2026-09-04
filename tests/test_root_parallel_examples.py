@@ -1,7 +1,7 @@
 from pathlib import Path
 import py_compile
 
-from yawl_run.model import load_spec
+from yall_run.model import load_spec
 
 
 ROOT_EXAMPLES = {
@@ -17,7 +17,7 @@ def test_root_parallel_example_graphs(monkeypatch):
     for name, expected_tasks in ROOT_EXAMPLES.items():
         example = root / "examples" / name
         monkeypatch.chdir(example)
-        spec = load_spec("Yawlfile")
+        spec = load_spec("Yallfile")
         specs[name] = spec
         assert len(spec.tasks) == expected_tasks
         for task in spec.tasks:
@@ -83,9 +83,9 @@ def test_root_parallel_examples_declare_graphics():
         ),
     }
     for example_name, filenames in expected.items():
-        yawlfile = (root / example_name / "Yawlfile").read_text()
+        yallfile = (root / example_name / "Yallfile").read_text()
         for filename in filenames:
-            assert filename in yawlfile
+            assert filename in yallfile
 
 
 def test_z_scan_includes_generation_truth_grid_point():

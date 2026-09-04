@@ -3,9 +3,9 @@ import subprocess
 
 import pytest
 
-from yawl_run.model import load_spec
-from yawl_run.pbs_backend import render_pbs
-from yawl_run.slurm_backend import render_slurm
+from yall_run.model import load_spec
+from yall_run.pbs_backend import render_pbs
+from yall_run.slurm_backend import render_slurm
 
 
 @pytest.mark.parametrize(
@@ -16,7 +16,7 @@ def test_generated_batch_script_executes_bundled_worker(
     tmp_path, monkeypatch, backend, renderer
 ):
     monkeypatch.chdir(tmp_path)
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         f"campaign {backend}-script-test\n"
         f"backend {backend}\n\n"
@@ -26,7 +26,7 @@ def test_generated_batch_script_executes_bundled_worker(
         "    ! printf hello > @output.result\n"
     )
     campaign_dir = renderer(load_spec(spec_file), tmp_path / "campaigns")
-    script = next((campaign_dir / backend).glob("yawl_0000_*.sh"))
+    script = next((campaign_dir / backend).glob("yall_0000_*.sh"))
 
     syntax = subprocess.run(
         ["bash", "-n", str(script)],

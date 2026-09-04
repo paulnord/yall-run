@@ -70,7 +70,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     logs_dir.mkdir()
 
     worker_source = Path(__file__).with_name("worker.py").read_text()
-    worker = condor_dir / "yawl_worker.py"
+    worker = condor_dir / "yall_worker.py"
     worker.write_text(worker_source)
     worker.chmod(0o755)
 
@@ -80,7 +80,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     node_names: dict[str, str] = {}
     dag_lines: list[str] = []
     for index, task in enumerate(spec.tasks):
-        node = f"yawl_{index:04d}_{_slug(task.name)}"
+        node = f"yall_{index:04d}_{_slug(task.name)}"
         node_names[task.name] = node
 
         node_script = condor_dir / f"{node}.sh"
@@ -140,7 +140,7 @@ def submit_rendered(campaign_dir: str | Path, *, overwrite: bool = False) -> Pat
     campaign_dir = logical_absolute(campaign_dir)
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.is_file():
-        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+        raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("backend") != "condor":
         raise ValueError(f"campaign backend is not condor: {campaign_dir}")

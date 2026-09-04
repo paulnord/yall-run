@@ -1,6 +1,6 @@
 # Provenance
 
-yawl-run treats provenance as part of the campaign model rather than as an optional report generated afterward.
+yall-run treats provenance as part of the campaign model rather than as an optional report generated afterward.
 
 The campaign directory is the provenance anchor. Scientific outputs may live elsewhere, but the campaign records the frozen workflow that produced them and the attempts that executed it.
 
@@ -8,9 +8,9 @@ The campaign directory is the provenance anchor. Scientific outputs may live els
 
 `campaign.json` is the durable definition of the campaign. It records the campaign identity, creation environment, execution policy, task order, and each frozen task definition, including dependencies, command, working directory, resources, inputs, outputs, and overwrite policy.
 
-Named values supplied by the Yawlfile, including values imported with `@set` or `@env`, are resolved before execution and recorded with the campaign definition.
+Named values supplied by the Yallfile, including values imported with `@set` or `@env`, are resolved before execution and recorded with the campaign definition.
 
-The archived `Yawlfile` remains the source recipe used to create that campaign.
+The archived `Yallfile` remains the source recipe used to create that campaign.
 
 ## Attempt provenance
 
@@ -58,22 +58,22 @@ Retries receive new attempt directories, preserving the records from earlier att
 The launched task receives these environment variables:
 
 ```text
-YAWL_CAMPAIGN_ID
-YAWL_CAMPAIGN_NAME
-YAWL_CAMPAIGN_DIR
-YAWL_BACKEND
-YAWL_TASK
-YAWL_ATTEMPT
-YAWL_PROVENANCE
+YALL_CAMPAIGN_ID
+YALL_CAMPAIGN_NAME
+YALL_CAMPAIGN_DIR
+YALL_BACKEND
+YALL_TASK
+YALL_ATTEMPT
+YALL_PROVENANCE
 ```
 
-`YAWL_PROVENANCE` points to the attempt's launch-provenance JSON.
+`YALL_PROVENANCE` points to the attempt's launch-provenance JSON.
 
-Application-specific programs can use that path to copy or embed yawl provenance into their own native output formats without requiring yawl-run to understand ROOT files, HDF5 files, databases, or other scientific formats.
+Application-specific programs can use that path to copy or embed yall provenance into their own native output formats without requiring yall-run to understand ROOT files, HDF5 files, databases, or other scientific formats.
 
 ## Archived execution wrappers
 
-When a `%wrapper` is used for a queued backend, yawl-run copies it into the campaign's `environment/` directory and records its source path, size, and SHA-256. This preserves the wrapper that was selected when the campaign was created.
+When a `%wrapper` is used for a queued backend, yall-run copies it into the campaign's `environment/` directory and records its source path, size, and SHA-256. This preserves the wrapper that was selected when the campaign was created.
 
 See [BACKENDS.md](BACKENDS.md) for wrapper execution behavior.
 
@@ -88,10 +88,10 @@ For the complete campaign layout, see [CAMPAIGNS.md](CAMPAIGNS.md).
 Campaign JSON remains the canonical record. One or more campaign trees can also be scraped into SQLite, a SQLite-compatible SQL dump, or normalized CSV tables for querying and reporting:
 
 ```bash
-yawl-run export campaigns \
-    --sqlite yawl.sqlite \
-    --sql yawl.sql \
-    --csv-dir yawl-csv
+yall-run export campaigns \
+    --sqlite yall.sqlite \
+    --sql yall.sql \
+    --csv-dir yall-csv
 ```
 
 Export does not modify the campaign directories, and older campaigns can be included when newer provenance fields are absent.

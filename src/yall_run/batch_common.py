@@ -58,7 +58,7 @@ def archive_wrapper(
 def bundle_worker(campaign_dir: Path, backend: str) -> Path:
     backend_dir = campaign_dir / backend
     worker_source = Path(__file__).with_name("worker.py").read_text()
-    worker = backend_dir / "yawl_worker.py"
+    worker = backend_dir / "yall_worker.py"
     worker.write_text(worker_source)
     worker.chmod(0o755)
     return worker
@@ -118,7 +118,7 @@ def load_backend_campaign(
     campaign_dir = logical_absolute(campaign_dir)
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.is_file():
-        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+        raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = read_json(manifest_path)
     if manifest.get("backend") != backend:
         raise ValueError(f"campaign backend is not {backend}: {campaign_dir}")

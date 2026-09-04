@@ -59,7 +59,7 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
 
     scripts: dict[str, str] = {}
     for index, task in enumerate(spec.tasks):
-        node = f"yawl_{index:04d}_{slug(task.name)}"
+        node = f"yall_{index:04d}_{slug(task.name)}"
         job_name = _pbs_job_name(index, task.name)
         script = pbs_dir / f"{node}.sh"
         cpus = task.resources.cpus or spec.condor.request_cpus
@@ -77,7 +77,7 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
             f"#PBS -o {logs_dir / (node + '.out')}\n"
             f"#PBS -e {logs_dir / (node + '.err')}\n"
             + getenv_line
-            + f"# yawl requested disk={disk}; no portable PBS disk request is emitted\n"
+            + f"# yall requested disk={disk}; no portable PBS disk request is emitted\n"
             "set -u\n"
             + retry_shell(command, task.retries)
         )

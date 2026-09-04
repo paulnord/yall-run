@@ -5,14 +5,14 @@ import sys
 
 import pytest
 
-from yawl_run.campaign import (
+from yall_run.campaign import (
     campaign_status,
     create_campaign,
     resume_local,
     retry_task,
     start_local,
 )
-from yawl_run.model import load_spec
+from yall_run.model import load_spec
 
 
 def _recoverable_campaign(tmp_path: Path) -> Path:
@@ -24,8 +24,8 @@ def _recoverable_campaign(tmp_path: Path) -> Path:
         "count.write_text(str(n))\n"
         "raise SystemExit(0 if n >= 2 else 7)\n"
     )
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign recovery\n"
         "backend local\n\n"
         "prepare:\n"
@@ -40,7 +40,7 @@ def _recoverable_campaign(tmp_path: Path) -> Path:
         + "\n"
     )
     return create_campaign(
-        load_spec(yawlfile), tmp_path / "campaigns", backend="local", local_jobs=2
+        load_spec(yallfile), tmp_path / "campaigns", backend="local", local_jobs=2
     )
 
 
@@ -69,13 +69,13 @@ def test_retry_is_one_more_attempt_of_failed_local_task(tmp_path, monkeypatch):
 
 def test_retry_rejects_completed_task(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign completed-retry\n\n"
         "work:\n"
         "    echo done\n"
     )
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
     start_local(campaign_dir)
 
     with pytest.raises(ValueError, match="not failed"):
@@ -84,13 +84,13 @@ def test_retry_rejects_completed_task(tmp_path, monkeypatch):
 
 
 def test_retry_rejects_unstarted_campaign(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign unstarted-retry\n\n"
         "work:\n"
         "    ! exit 1\n"
     )
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
 
     with pytest.raises(ValueError, match="before the campaign has been started"):
         retry_task(campaign_dir, "work")
@@ -139,26 +139,26 @@ def test_resume_reuses_frozen_local_concurrency(tmp_path, monkeypatch, capsys):
 
 
 def test_resume_rejects_unstarted_campaign(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign unstarted-resume\n\n"
         "work:\n"
         "    echo done\n"
     )
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
 
     with pytest.raises(ValueError, match="has not been started"):
         resume_local(campaign_dir)
 
 
 def test_resume_refuses_recorded_running_task(tmp_path):
-    yawlfile = tmp_path / "Yawlfile"
-    yawlfile.write_text(
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
         "campaign running-resume\n\n"
         "work:\n"
         "    echo done\n"
     )
-    campaign_dir = create_campaign(load_spec(yawlfile), tmp_path / "campaigns")
+    campaign_dir = create_campaign(load_spec(yallfile), tmp_path / "campaigns")
     (campaign_dir / "start.json").write_text(
         json.dumps({"started_at": "test", "backend": "local", "overwrite": False})
     )

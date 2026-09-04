@@ -30,8 +30,8 @@ def _friendly_sections(parser: argparse.ArgumentParser, positional_title: str = 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="yawl-run",
-        description="Yet Another Workflow Layer. Y'all run!",
+        prog="yall-run",
+        description="Yet Another Launch Layer. Y'all run!",
     )
     _friendly_sections(parser, "commands")
     visible_commands = "{validate,plan,create,start,resume,status,retry,export}"
@@ -41,20 +41,20 @@ def _parser() -> argparse.ArgumentParser:
         metavar=visible_commands,
     )
 
-    validate = sub.add_parser("validate", help="validate a Yawlfile")
+    validate = sub.add_parser("validate", help="validate a Yallfile")
     _friendly_sections(validate)
-    validate.add_argument("spec", nargs="?", default="Yawlfile")
+    validate.add_argument("spec", nargs="?", default="Yallfile")
 
-    plan = sub.add_parser("plan", help="show tasks described by a Yawlfile")
+    plan = sub.add_parser("plan", help="show tasks described by a Yallfile")
     _friendly_sections(plan)
-    plan.add_argument("spec", nargs="?", default="Yawlfile")
+    plan.add_argument("spec", nargs="?", default="Yallfile")
     plan_format = plan.add_mutually_exclusive_group()
     plan_format.add_argument("--json", action="store_true", help="emit the expanded plan as JSON")
     plan_format.add_argument("--dot", action="store_true", help="emit the expanded dependency graph in Graphviz DOT format")
 
-    create = sub.add_parser("create", help="create a frozen campaign from a Yawlfile")
+    create = sub.add_parser("create", help="create a frozen campaign from a Yallfile")
     _friendly_sections(create)
-    create.add_argument("spec", nargs="?", default="Yawlfile")
+    create.add_argument("spec", nargs="?", default="Yallfile")
     create.add_argument(
         "--campaigns-dir",
         default="./campaigns",
@@ -152,7 +152,7 @@ def _plan_json(spec: object) -> dict[str, object]:
 
 
 def _plan_dot(spec: object) -> str:
-    lines = ["digraph yawl {", "  rankdir=LR;"]
+    lines = ["digraph yall {", "  rankdir=LR;"]
     for task in spec.tasks:
         lines.append(f"  {json.dumps(task.name)};")
     for task in spec.tasks:
@@ -323,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
             return run_task(args.campaign_dir, args.task)
 
     except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
-        print(f"yawl-run: {exc}", file=sys.stderr)
+        print(f"yall-run: {exc}", file=sys.stderr)
         return 2
 
     return 1

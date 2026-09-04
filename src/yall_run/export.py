@@ -14,7 +14,7 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("name", "TEXT NOT NULL"),
         ("backend", "TEXT NOT NULL"),
         ("schema_version", "INTEGER"),
-        ("yawl_version", "TEXT"),
+        ("yall_version", "TEXT"),
         ("created_at", "TEXT"),
         ("campaign_dir", "TEXT NOT NULL"),
         ("spec_source", "TEXT"),
@@ -283,7 +283,7 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
         "name": str(manifest.get("name", "")),
         "backend": str(manifest.get("backend", "local")),
         "schema_version": manifest.get("schema"),
-        "yawl_version": manifest.get("yawl_version"),
+        "yall_version": manifest.get("yall_version"),
         "created_at": manifest.get("created_at"),
         "campaign_dir": str(campaign_dir),
         "spec_source": manifest.get("spec_source"),
@@ -575,7 +575,7 @@ def export_provenance(
         raise ValueError("export needs at least one of --sqlite, --sql, or --csv-dir")
     campaigns = discover_campaigns(sources)
     if not campaigns:
-        raise ValueError("no yawl campaigns found")
+        raise ValueError("no yall campaigns found")
     rows = collect_rows(campaigns)
     if sqlite_path is not None:
         write_sqlite(sqlite_path, rows)

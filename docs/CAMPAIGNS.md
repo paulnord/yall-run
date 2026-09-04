@@ -1,30 +1,30 @@
 # Campaigns
 
-A Yawlfile is a reusable workflow recipe. A campaign is one frozen instance of that recipe.
+A Yallfile is a reusable workflow recipe. A campaign is one frozen instance of that recipe.
 
 The core model is:
 
 ```text
-Yawlfile
+Yallfile
   -> campaign
        -> task
             -> attempt
 ```
 
-This separation is central to yawl-run: workflow definition happens before execution, and the exact expanded workflow is preserved for later inspection.
+This separation is central to yall-run: workflow definition happens before execution, and the exact expanded workflow is preserved for later inspection.
 
 ## Create, then start
 
 Create a campaign with:
 
 ```bash
-yawl-run create
+yall-run create
 ```
 
-By default, yawl-run creates a new campaign directory under `./campaigns` and prints its path. Choose another containing directory with:
+By default, yall-run creates a new campaign directory under `./campaigns` and prints its path. Choose another containing directory with:
 
 ```bash
-yawl-run create --campaigns-dir /path/to/campaigns
+yall-run create --campaigns-dir /path/to/campaigns
 ```
 
 `create` freezes the expanded task graph, backend choice, task policy, named data, and campaign creation information. It does not execute or submit the campaign.
@@ -32,22 +32,22 @@ yawl-run create --campaigns-dir /path/to/campaigns
 Start the exact campaign later:
 
 ```bash
-yawl-run start ./campaigns/<campaign-id>
+yall-run start ./campaigns/<campaign-id>
 ```
 
 Because `create` writes the campaign path to standard output, the common one-line form is:
 
 ```bash
-yawl-run create | yawl-run start
+yall-run create | yall-run start
 ```
 
 If a campaign path is supplied explicitly, `start` uses that argument. Otherwise it reads exactly one nonblank campaign path from standard input.
 
-A campaign can be started only once. Running the same Yawlfile again means creating a new campaign.
+A campaign can be started only once. Running the same Yallfile again means creating a new campaign.
 
 ## A frozen workflow
 
-The archived Yawlfile records the source recipe. `campaign.json` records the concrete campaign definition after named values, file discovery, pattern expansion, and creation-time options have been resolved.
+The archived Yallfile records the source recipe. `campaign.json` records the concrete campaign definition after named values, file discovery, pattern expansion, and creation-time options have been resolved.
 
 That makes the campaign directory the provenance anchor for the execution even when the scientific output files live elsewhere.
 
@@ -97,17 +97,17 @@ Pattern tasks are expanded before the campaign is created. By the time execution
 
 A patterned child can follow the corresponding parent in the same family, while a plain task depending on a patterned parent naturally fans in from the complete expanded family.
 
-For the pattern language, explicit `@each` values, correlated tuples, and named values, see [YAWLFILE.md](YAWLFILE.md).
+For the pattern language, explicit `@each` values, correlated tuples, and named values, see [YALLFILE.md](YALLFILE.md).
 
 ## Execution policy belongs to the campaign
 
 Options that affect execution are frozen when appropriate rather than rediscovered later. For example, local concurrency is selected when the campaign is created:
 
 ```bash
-yawl-run create --backend local -j 4
+yall-run create --backend local -j 4
 ```
 
-Task-level resource and retry policy comes from the Yawlfile. Backend-specific rendering is then derived from the frozen campaign.
+Task-level resource and retry policy comes from the Yallfile. Backend-specific rendering is then derived from the frozen campaign.
 
 For backend behavior and resource translation, see [BACKENDS.md](BACKENDS.md).
 
@@ -116,7 +116,7 @@ For backend behavior and resource translation, see [BACKENDS.md](BACKENDS.md).
 Check current state with:
 
 ```bash
-yawl-run status ./campaigns/<campaign-id>
+yall-run status ./campaigns/<campaign-id>
 ```
 
 The campaign directory remains useful after execution because it ties the frozen workflow, task state, logs, attempts, and provenance together in one durable record.

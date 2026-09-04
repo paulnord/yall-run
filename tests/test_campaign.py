@@ -6,21 +6,21 @@ import sys
 
 import pytest
 
-from yawl_run.campaign import campaign_status, create_campaign, start_local
-from yawl_run.model import load_spec
-from yawl_run.worker import run_task
+from yall_run.campaign import campaign_status, create_campaign, start_local
+from yall_run.model import load_spec
+from yall_run.worker import run_task
 
 
 def test_create_then_start_local_campaign(tmp_path, capsys):
     root = Path(__file__).resolve().parents[1]
-    source = root / "examples" / "hello" / "Yawlfile"
+    source = root / "examples" / "hello" / "Yallfile"
     spec = load_spec(source)
     campaign_dir = create_campaign(spec, tmp_path, backend="local")
 
     assert not list(campaign_dir.glob("*_attempt_*"))
     assert not (campaign_dir / "provenance.json").exists()
     assert not (campaign_dir / "tasks").exists()
-    assert (campaign_dir / "Yawlfile").read_bytes() == source.read_bytes()
+    assert (campaign_dir / "Yallfile").read_bytes() == source.read_bytes()
     assert campaign_status(campaign_dir)["counts"] == {"pending": 3}
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     assert manifest["schema"] == 7
@@ -30,8 +30,8 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     assert manifest["tasks"]["left"]["cwd"] == str(source.parent)
     assert manifest["spec_source"] == str(source)
     assert manifest["spec_archive"] == {
-        "path": "Yawlfile",
-        "source_name": "Yawlfile",
+        "path": "Yallfile",
+        "source_name": "Yallfile",
         "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
     }
     assert manifest["creation"]["cwd"]
@@ -60,7 +60,7 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     assert start_record["execution"] == {"local": {"jobs": 1}}
 
 
-def test_yawlfile_relative_paths_are_anchored_to_source_directory(
+def test_yallfile_relative_paths_are_anchored_to_source_directory(
     tmp_path, monkeypatch
 ):
     workflow = tmp_path / "workflow"
@@ -76,7 +76,7 @@ def test_yawlfile_relative_paths_are_anchored_to_source_directory(
         "import sys\n"
         "Path(sys.argv[2]).write_text(Path(sys.argv[1]).read_text())\n"
     )
-    spec_file = workflow / "Yawlfile"
+    spec_file = workflow / "Yallfile"
     spec_file.write_text(
         "campaign anchored\n\n"
         "copy-{run}:\n"
@@ -119,7 +119,7 @@ def test_local_j_is_frozen_at_create_and_runs_tasks_concurrently(
     )
     py = shlex.quote(sys.executable)
     script = shlex.quote(str(barrier))
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign parallel\n"
         "backend local\n\n"
@@ -150,10 +150,10 @@ def test_argv_command_file_and_launch_provenance(tmp_path):
         "from pathlib import Path\n"
         "import os, sys\n"
         "Path(sys.argv[2]).write_text(Path(sys.argv[1]).read_text().upper())\n"
-        "print(os.environ['YAWL_TASK'])\n"
-        "print(os.environ['YAWL_PROVENANCE'])\n"
+        "print(os.environ['YALL_TASK'])\n"
+        "print(os.environ['YALL_PROVENANCE'])\n"
     )
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign provenance-test\n\n"
         "transform:\n"
@@ -197,7 +197,7 @@ def test_argv_command_file_and_launch_provenance(tmp_path):
 
 
 def test_attempt_number_uses_state_without_scanning_campaign(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign attempts\n\n"
         "work:\n"
@@ -225,7 +225,7 @@ def test_missing_declared_input_fails_without_running_command(tmp_path, monkeypa
         "Path(sys.argv[2]).write_text('ran\\n')\n"
         "Path(sys.argv[3]).write_text('output\\n')\n"
     )
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign missing-input\n"
         "backend local\n\n"
@@ -269,7 +269,7 @@ def test_missing_declared_output_fails_after_successful_command(tmp_path, monkey
         "import sys\n"
         "Path(sys.argv[1]).write_text('ran\\n')\n"
     )
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign missing-output\n"
         "backend local\n\n"

@@ -31,7 +31,7 @@ prepare -> incumbent --- +--> search-03 --+
                          +--> search-07 --+
 ```
 
-The search tasks are independent yawl tasks, but they cooperate through `golomb-work/incumbent.json`. When one worker finds a ruler shorter than the current incumbent, it installs the new ruler under a file lock and the other workers can tighten their branch-and-bound limit.
+The search tasks are independent yall tasks, but they cooperate through `golomb-work/incumbent.json`. When one worker finds a ruler shorter than the current incumbent, it installs the new ruler under a file lock and the other workers can tighten their branch-and-bound limit.
 
 The incumbent only moves downward. That makes stale reads safe: a worker that spends extra time searching below an older, larger bound has done *more* work than necessary, never less. Workers refresh the shared bound only every million search nodes so that a high-latency shared filesystem does not turn a tiny JSON file into the dominant workload.
 
@@ -53,27 +53,27 @@ Only then does `reduce.py` set `optimality_established=true`. `verify.py` indepe
 From this directory:
 
 ```bash
-yawl-run create -j 8 | yawl-run start
+yall-run create -j 8 | yall-run start
 cat golomb-work/report.txt
 ```
 
-On a host where the current directory is a high-latency shared filesystem, the computation itself may still be fine but yawl campaign bookkeeping can be much faster on node-local storage:
+On a host where the current directory is a high-latency shared filesystem, the computation itself may still be fine but yall campaign bookkeeping can be much faster on node-local storage:
 
 ```bash
-yawl-run create -j 8 --campaigns-dir /tmp/$USER-yawl | yawl-run start
+yall-run create -j 8 --campaigns-dir /tmp/$USER-yall | yall-run start
 ```
 
 For the cleanest local CPU benchmark, copy the whole example to local scratch first. The eight workers intentionally share the incumbent file, so the example's working directory must itself be shared when the workers run on different machines.
 
 ## Run with HTCondor
 
-The same Yawlfile can be submitted through DAGMan:
+The same Yallfile can be submitted through DAGMan:
 
 ```bash
-yawl-run create --backend condor | yawl-run start
+yall-run create --backend condor | yall-run start
 ```
 
-This assumes the example directory is visible on the execute nodes, matching yawl-run's current Condor `should_transfer_files = NO` model.
+This assumes the example directory is visible on the execute nodes, matching yall-run's current Condor `should_transfer_files = NO` model.
 
 ## Runtime
 

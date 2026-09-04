@@ -3,12 +3,12 @@ import json
 
 import pytest
 
-from yawl_run.condor_backend import render_condor, submit_rendered
-from yawl_run.model import load_spec
+from yall_run.condor_backend import render_condor, submit_rendered
+from yall_run.model import load_spec
 
 
 def test_condor_dag_render(tmp_path):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign dag-test\n"
         "backend condor\n\n"
@@ -23,16 +23,16 @@ def test_condor_dag_render(tmp_path):
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
     dag = (campaign_dir / "condor" / "campaign.dag").read_text()
-    assert "RETRY yawl_0000_left 2" in dag
-    assert "PARENT yawl_0000_left yawl_0001_right CHILD yawl_0002_finish" in dag
-    assert (campaign_dir / "condor" / "yawl_worker.py").is_file()
+    assert "RETRY yall_0000_left 2" in dag
+    assert "PARENT yall_0000_left yall_0001_right CHILD yall_0002_finish" in dag
+    assert (campaign_dir / "condor" / "yall_worker.py").is_file()
     assert not (campaign_dir / "start.json").exists()
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     assert manifest["execution"] == {"condor": {}}
 
 
 def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, capsys):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign submit\n"
         "backend condor\n\n"
@@ -53,7 +53,7 @@ def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, ca
         def wait(self):
             return 0
 
-    monkeypatch.setattr("yawl_run.condor_backend.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("yall_run.condor_backend.subprocess.Popen", FakePopen)
     submit_rendered(campaign_dir)
 
     assert calls[0][0] == ["condor_submit_dag", "campaign.dag"]
@@ -67,7 +67,7 @@ def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, ca
 
 
 def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monkeypatch):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign failed-submit\n"
         "backend condor\n\n"
@@ -84,7 +84,7 @@ def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monke
         def wait(self):
             return 1
 
-    monkeypatch.setattr("yawl_run.condor_backend.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("yall_run.condor_backend.subprocess.Popen", FakePopen)
     with pytest.raises(RuntimeError, match="schedd unavailable"):
         submit_rendered(campaign_dir)
 
@@ -95,7 +95,7 @@ def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monke
 
 def test_condor_task_resources_override_campaign_defaults(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign resources\n"
         "backend condor\n"
@@ -110,7 +110,7 @@ def test_condor_task_resources_override_campaign_defaults(tmp_path, monkeypatch)
     )
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
-    submit = (campaign_dir / "condor" / "yawl_0000_heavy.sub").read_text()
+    submit = (campaign_dir / "condor" / "yall_0000_heavy.sub").read_text()
     assert "request_cpus = 4" in submit
     assert "request_memory = 8GB" in submit
     assert "request_disk = 10GB" in submit
@@ -120,7 +120,7 @@ def test_condor_wrapper_is_archived(tmp_path):
     wrapper = tmp_path / "container-wrapper.sh"
     wrapper.write_text("#!/bin/bash\nexec \"$@\"\n")
     wrapper.chmod(0o755)
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign wrapped\n"
         "backend condor\n"
@@ -132,7 +132,7 @@ def test_condor_wrapper_is_archived(tmp_path):
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
     archived = campaign_dir / "environment" / "condor-wrapper.sh"
     assert archived.read_text() == wrapper.read_text()
-    node_script = (campaign_dir / "condor" / "yawl_0000_hello.sh").read_text()
+    node_script = (campaign_dir / "condor" / "yall_0000_hello.sh").read_text()
     assert str(archived) in node_script
     render = json.loads((campaign_dir / "condor" / "render.json").read_text())
     assert render["wrapper"]["source"] == str(wrapper)

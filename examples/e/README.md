@@ -23,11 +23,11 @@ terms-07 --- pair-3 --/
 
 The arithmetic remains exact through the entire tree using Python `Fraction`. Only the final `check` task converts the result to floating point.
 
-## Why this is a useful yawl example
+## Why this is a useful yall example
 
 The pi example has one broad fan-out followed by one fan-in. This example exercises a more realistic multi-stage sub-analysis: independent leaves, several intermediate reductions, and a final dependent result. With local `-j` greater than one, independent branches can proceed simultaneously while every reduction still waits for its own parents.
 
-It is also small enough that `yawl-run plan` makes the graph structure easy to inspect.
+It is also small enough that `yall-run plan` makes the graph structure easy to inspect.
 
 ## Numerical character
 
@@ -42,14 +42,14 @@ There are also faster or more specialized arbitrary-precision algorithms for eno
 From this directory:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create -j 4 | yawl-run start
+yall-run validate
+yall-run plan
+yall-run create -j 4 | yall-run start
 cat e-work/e.txt
 ```
 
 You can also render the same frozen graph for a queue backend, for example:
 
 ```bash
-yawl-run create --backend condor
+yall-run create --backend condor
 ```

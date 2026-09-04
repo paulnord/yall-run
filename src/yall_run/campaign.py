@@ -205,7 +205,7 @@ def campaign_manifest(campaign_dir: str | Path) -> tuple[Path, dict[str, Any]]:
     campaign_dir = logical_absolute(campaign_dir)
     manifest_path = campaign_dir / "campaign.json"
     if not manifest_path.is_file():
-        raise ValueError(f"not a yawl campaign: {campaign_dir}")
+        raise ValueError(f"not a yall campaign: {campaign_dir}")
     return campaign_dir, _read_json(manifest_path)
 
 
@@ -352,7 +352,7 @@ def create_campaign(
     campaign_dir = root / _campaign_id(spec)
     campaign_dir.mkdir(parents=True, exist_ok=False)
     (campaign_dir / "state").mkdir()
-    (campaign_dir / "Yawlfile").write_bytes(source_bytes)
+    (campaign_dir / "Yallfile").write_bytes(source_bytes)
     launch_cwd = logical_cwd()
     created_at = _utc_now()
     workflow_cwd = spec.source.parent
@@ -396,10 +396,10 @@ def create_campaign(
         "backend": selected_backend,
         "execution": execution,
         "created_at": created_at,
-        "yawl_version": __version__,
+        "yall_version": __version__,
         "spec_source": str(spec.source),
         "spec_archive": {
-            "path": "Yawlfile",
+            "path": "Yallfile",
             "source_name": spec.source.name,
             "sha256": source_sha256,
         },
@@ -571,7 +571,7 @@ def _run_local_graph(
     remaining = set(task_names) - reconciled
     running: dict[Future[int], tuple[str, float]] = {}
 
-    with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="yawl") as pool:
+    with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="yall") as pool:
         while remaining or running:
             progressed = False
 

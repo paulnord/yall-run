@@ -2,8 +2,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from yawl_run.campaign import create_campaign
-from yawl_run.model import load_spec
+from yall_run.campaign import create_campaign
+from yall_run.model import load_spec
 
 
 def test_campaign_records_explicit_executable_identity(tmp_path):
@@ -12,7 +12,7 @@ def test_campaign_records_explicit_executable_identity(tmp_path):
     tool.chmod(0o755)
     original = tool.read_bytes()
 
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign executable-provenance\n\n"
         "work:\n"
@@ -45,16 +45,16 @@ def test_campaign_records_explicit_executable_identity(tmp_path):
 def test_campaign_records_path_resolved_executable_identity(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    tool = bin_dir / "yawl-test-tool"
+    tool = bin_dir / "yall-test-tool"
     tool.write_text("#!/bin/sh\nexit 0\n")
     tool.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign executable-path-provenance\n\n"
         "work:\n"
-        "    yawl-test-tool\n"
+        "    yall-test-tool\n"
     )
 
     campaign_dir = create_campaign(
@@ -63,7 +63,7 @@ def test_campaign_records_path_resolved_executable_identity(tmp_path, monkeypatc
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
     executable = manifest["tasks"]["work"]["executable"]
 
-    assert executable["argv0"] == "yawl-test-tool"
+    assert executable["argv0"] == "yall-test-tool"
     assert executable["resolution"] == "PATH"
     assert executable["path"] == str(tool)
     assert executable["realpath"] == str(tool.resolve())
@@ -72,7 +72,7 @@ def test_campaign_records_path_resolved_executable_identity(tmp_path, monkeypatc
 
 
 def test_shell_command_does_not_guess_a_single_executable(tmp_path):
-    spec_file = tmp_path / "Yawlfile"
+    spec_file = tmp_path / "Yallfile"
     spec_file.write_text(
         "campaign shell-executable-provenance\n\n"
         "work:\n"

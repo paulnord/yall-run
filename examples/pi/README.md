@@ -16,23 +16,23 @@ The calculation is divided into eight independent chunks. Every worker runs the 
 From this directory:
 
 ```bash
-yawl-run validate
-yawl-run plan
-yawl-run create
+yall-run validate
+yall-run plan
+yall-run create
 ```
 
-The Yawlfile declares `backend condor`, so `create` freezes the campaign and renders the Condor/DAGMan files without submitting them. It prints the exact campaign directory.
+The Yallfile declares `backend condor`, so `create` freezes the campaign and renders the Condor/DAGMan files without submitting them. It prints the exact campaign directory.
 
 Start that campaign with:
 
 ```bash
-yawl-run start campaigns/<campaign-id>
+yall-run start campaigns/<campaign-id>
 ```
 
 or create and start it directly:
 
 ```bash
-yawl-run create | yawl-run start
+yall-run create | yall-run start
 ```
 
 After completion, the combined estimate is in:
@@ -41,13 +41,13 @@ After completion, the combined estimate is in:
 pi-work/pi.txt
 ```
 
-For a local smoke test, create a separate local campaign from the same Yawlfile and choose local task concurrency when the campaign is created:
+For a local smoke test, create a separate local campaign from the same Yallfile and choose local task concurrency when the campaign is created:
 
 ```bash
-yawl-run create --backend local -j 4 | yawl-run start
+yall-run create --backend local -j 4 | yall-run start
 cat pi-work/pi.txt
 ```
 
-`-j` is local-only. Condor processor requests are expressed per task with `%cpus` in the Yawlfile.
+`-j` is local-only. Condor processor requests are expressed per task with `%cpus` in the Yallfile.
 
-Each task attempt has a top-level directory such as `partial-000_attempt_001/`. Its `provenance.json` exists before the worker starts, and the worker receives its path in `YAWL_PROVENANCE`.
+Each task attempt has a top-level directory such as `partial-000_attempt_001/`. Its `provenance.json` exists before the worker starts, and the worker receives its path in `YALL_PROVENANCE`.
