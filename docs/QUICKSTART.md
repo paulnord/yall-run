@@ -81,6 +81,27 @@ yawl-run create --backend local -j 4 | yawl-run start
 
 `-j` controls how many dependency-ready yawl tasks may run concurrently. It is a local-backend option, not a CPU request for an individual task.
 
+## Run the same workflow on HTCondor
+
+If HTCondor and DAGMan are available, create a Condor campaign from the same Yawlfile by overriding the backend:
+
+```bash
+yawl-run create --backend condor | yawl-run start
+```
+
+`create` freezes the campaign and renders its DAG and submit files without submitting anything. `start` then submits that exact campaign through DAGMan, preserving the same task dependencies used by the local backend.
+
+Local `-j` does not apply to queued backends. Requests for an individual queued task belong in the Yawlfile instead:
+
+```text
+analysis:
+    %cpus 4
+    %memory 8GB
+    ./Analyze input.root
+```
+
+For scheduler details, site wrappers, and the experimental Slurm and PBS adapters, see [BACKENDS.md](BACKENDS.md).
+
 ## Check status
 
 ```bash
