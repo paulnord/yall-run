@@ -107,29 +107,29 @@ Known `{name}` placeholders from `@set` are substituted before task patterns are
 
 ### Import a named value from the environment
 
-Use `@env NAME` when a site-specific value should come from the environment that runs `yawl-run validate`, `plan`, or `create`:
+Use `@env NAME` when a value should come from the environment that runs `yawl-run validate`, `plan`, or `create`:
 
 ```text
-@env LFHCAL_RAW
+@env DATA_ROOT
 
 convert-{run}:
-    @each run 296 298 300
-    @input raw {LFHCAL_RAW}/Run{run}.h2g
-    @output root work/rawHGCROC_{run}.root
-    ./Convert -c @input.raw -o @output.root
+    @each run 101 102 103
+    @input raw {DATA_ROOT}/run{run}.dat
+    @output result work/run{run}.out
+    ./convert @input.raw -o @output.result
 ```
 
-For example, a STAR login shell could provide:
+For example, a shell could provide:
 
-```csh
-setenv LFHCAL_RAW /work/eic3/EPIC/TestBeam/LFHCAL/CERN/2026/2026_SPSH2/raw
+```bash
+export DATA_ROOT=/data/experiment/raw
 ```
 
-`@env LFHCAL_RAW` reads that value while the Yawlfile is parsed. The value participates in the same `{LFHCAL_RAW}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
+`@env DATA_ROOT` reads that value while the Yawlfile is parsed. The value participates in the same `{DATA_ROOT}` substitution as an `@set` value. It is therefore resolved before pattern expansion and before the campaign is created.
 
-This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yawl-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `LFHCAL_RAW` later does not change that campaign.
+This is deliberately different from ordinary command environment inheritance. `@env` is a **campaign-definition input**, not a worker-time lookup. Once `yawl-run create` succeeds, the expanded task paths and commands in `campaign.json` contain the resolved value, and the imported value is also recorded with the campaign's named values. Changing `DATA_ROOT` later does not change that campaign.
 
-The archived `Yawlfile` remains byte-for-byte the source file and still contains the literal `@env LFHCAL_RAW` line.
+The archived `Yawlfile` remains byte-for-byte the source file and still contains the literal `@env DATA_ROOT` line.
 
 A required imported variable must exist. If it is absent, `validate`, `plan`, and `create` fail with a message naming the missing environment variable; yawl-run does not substitute an empty string.
 
@@ -431,7 +431,3 @@ YAWL_PROVENANCE
 `YAWL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yawl-run remains format-agnostic.
 
 `attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, pre-launch output observations, and final observed output metadata. A worker-level task stopped by the output guard records failure kind `outputs_exist` and no command return code because the command was never launched.
-
-## One language
-
-Yawlfile syntax is the campaign language. TOML campaign files from the prototype era are intentionally not supported. Keeping one syntax avoids duplicate semantics, duplicate documentation, and two parser paths that can drift apart.
