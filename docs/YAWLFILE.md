@@ -161,6 +161,19 @@ backend condor
 
 Other campaign-level directives currently supported are `%getenv` and `%wrapper`.
 
+### Execution wrappers
+
+Use `%wrapper PATH` at campaign level when queued tasks need to run through a site or container wrapper:
+
+```text
+backend condor
+%wrapper /path/to/run-in-container.sh
+```
+
+When the campaign is created, yawl-run archives the wrapper in the campaign's `environment/` directory and records its source path, size, and SHA-256. Queued tasks then invoke the bundled yawl worker through that archived copy, so the execution wrapper itself becomes part of the frozen campaign environment.
+
+The same mechanism is used by the Condor, Slurm, and PBS backends. For scheduler-specific details and the interaction with `%getenv`, see [BACKENDS.md](BACKENDS.md#execution-wrappers).
+
 `%cwd` is task-local.
 
 `%overwrite` is also task-local. It permits that task to run when one or more of its declared output paths already exist:
