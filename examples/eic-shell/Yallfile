@@ -2,7 +2,7 @@ campaign eic-shell-check
 backend condor
 
 @env EIC_SHELL
-%wrapper {EIC_SHELL} --
+%wrapper ./run-in-eic-shell.sh {EIC_SHELL}
 %cpus 1
 %memory 2GB
 %disk 2GB
