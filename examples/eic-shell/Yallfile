@@ -1,0 +1,17 @@
+campaign eic-shell-check
+backend condor
+
+@env EIC_SHELL
+%wrapper {EIC_SHELL} --
+%cpus 1
+%memory 2GB
+%disk 2GB
+
+root-version:
+    root-config --version
+
+python-version:
+    python3 --version
+
+finished: root-version python-version
+    echo EIC environment checks finished

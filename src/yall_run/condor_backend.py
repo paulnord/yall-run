@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
-import shutil
 import subprocess
 from typing import Any
 
+from .batch_common import archive_wrapper, worker_command
 from .campaign import (
     begin_campaign,
     cancel_prepared_start,
@@ -41,27 +39,6 @@ def _slug(name: str) -> str:
     return value or "task"
 
 
-def _archive_wrapper(spec: CampaignSpec, campaign_dir: Path) -> dict[str, Any] | None:
-    if not spec.condor.wrapper:
-        return None
-    source = logical_absolute(spec.condor.wrapper, spec.source.parent)
-    if not source.is_file():
-        raise ValueError(f"Condor wrapper does not exist: {source}")
-    environment_dir = campaign_dir / "environment"
-    environment_dir.mkdir(exist_ok=True)
-    suffix = "".join(source.suffixes)
-    archived = environment_dir / f"condor-wrapper{suffix}"
-    shutil.copy2(source, archived)
-    archived.chmod(archived.stat().st_mode | 0o100)
-    digest = hashlib.sha256(archived.read_bytes()).hexdigest()
-    return {
-        "source": str(source),
-        "path": str(archived),
-        "sha256": digest,
-        "size_bytes": archived.stat().st_size,
-    }
-
-
 def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     campaign_dir = create_campaign(spec, root, backend="condor")
     condor_dir = campaign_dir / "condor"
@@ -74,7 +51,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     worker.write_text(worker_source)
     worker.chmod(0o755)
 
-    wrapper_record = _archive_wrapper(spec, campaign_dir)
+    wrapper_record = archive_wrapper(spec, campaign_dir, "condor")
     archived_wrapper = Path(wrapper_record["path"]) if wrapper_record else None
 
     node_names: dict[str, str] = {}
@@ -84,16 +61,14 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         node_names[task.name] = node
 
         node_script = condor_dir / f"{node}.sh"
-        worker_command = (
-            f"/usr/bin/env python3 {shlex.quote(str(worker))} "
-            f"{shlex.quote(str(campaign_dir))} {shlex.quote(task.name)}"
+        command = worker_command(
+            worker, campaign_dir, task.name, archived_wrapper,
+            spec.condor.wrapper_args,
         )
-        if archived_wrapper is not None:
-            worker_command = f"{shlex.quote(str(archived_wrapper))} {worker_command}"
         node_script.write_text(
             "#!/bin/bash\n"
             "set -e\n"
-            f"exec {worker_command}\n"
+            f"exec {command}\n"
         )
         node_script.chmod(0o755)
 

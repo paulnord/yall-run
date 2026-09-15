@@ -64,7 +64,10 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             "slurm",
         )
         disk = task.resources.disk or spec.condor.request_disk
-        command = worker_command(worker, campaign_dir, task.name, archived_wrapper)
+        command = worker_command(
+            worker, campaign_dir, task.name, archived_wrapper,
+            spec.condor.wrapper_args,
+        )
         script.write_text(
             "#!/bin/bash\n"
             f"#SBATCH --job-name={node}\n"

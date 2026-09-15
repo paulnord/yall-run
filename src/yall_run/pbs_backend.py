@@ -68,7 +68,10 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
             "pbs",
         )
         disk = task.resources.disk or spec.condor.request_disk
-        command = worker_command(worker, campaign_dir, task.name, archived_wrapper)
+        command = worker_command(
+            worker, campaign_dir, task.name, archived_wrapper,
+            spec.condor.wrapper_args,
+        )
         getenv_line = "#PBS -V\n" if spec.condor.getenv else ""
         script.write_text(
             "#!/bin/bash\n"

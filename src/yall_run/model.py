@@ -32,6 +32,7 @@ class CondorSpec:
     request_disk: str = "2GB"
     getenv: bool = True
     wrapper: str | None = None
+    wrapper_args: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
