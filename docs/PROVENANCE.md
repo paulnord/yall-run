@@ -78,13 +78,13 @@ For queued backends, `%wrapper PATH [ARG ...]` copies the executable into the ca
 - `source`: resolved source executable path
 - `path`: archived executable path used by the jobs
 - `sha256` and `size_bytes`: fingerprint of the archived executable bytes
-- `args`: ordered argument list, including any literal `--` and empty strings
+- `args`: ordered argument list, including literal separators and empty strings
 
 The hash covers the executable, not the arguments. Both are recorded so a wrapper invocation can be reconstructed without parsing a shell command. The record is stored in `campaign.json` at `execution.<backend>.wrapper` and in `<backend>/render.json`. `start.json` copies the execution policy when the campaign starts. Relational exports of started campaigns preserve this policy in `campaign_start.execution_json`.
 
 Path-only wrappers have an empty argument list. Older campaigns may lack `args` or the manifest-level wrapper record; their existing rendered scripts still define their original invocation.
 
-Only the launcher file is archived, not the resources it refers to. Referenced configuration files, container installations and images must be retained separately. In particular, an archived `eic-shell` that refers to a moving image tag is not an immutable container snapshot.
+Only the wrapper executable itself is archived. Resources named by its arguments or otherwise referenced at runtime are not copied automatically. For example, the EIC example archives `run-in-eic-shell.sh` and freezes the selected `EIC_SHELL` path as an argument, but it does not archive that `eic-shell` installation or its container image. A launcher that ultimately refers to a moving image tag therefore remains non-immutable.
 
 See [BACKENDS.md](BACKENDS.md#execution-wrappers) for wrapper execution behavior.
 
