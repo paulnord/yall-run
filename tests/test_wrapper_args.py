@@ -258,7 +258,7 @@ def test_eic_shell_example_parses(monkeypatch):
     path = Path(__file__).resolve().parents[1] / "examples/eic-shell/Yallfile"
     spec = load_spec(path)
     assert spec.backend == "condor"
-    assert spec.condor.wrapper == "/shared/eic/eic-shell"
-    assert spec.condor.wrapper_args == ("--",)
+    assert spec.condor.wrapper == "./run-in-eic-shell.sh"
+    assert spec.condor.wrapper_args == ("/shared/eic/eic-shell",)
     assert len(spec.tasks) == 3
     assert spec.tasks[-1].parents == ("root-version", "python-version")
