@@ -109,34 +109,37 @@ The queued backends currently assume that the campaign directory and declared pa
 
 ## Execution wrappers
 
-A site or container launcher can be used directly, with optional arguments:
+Queued jobs can run through a site or container wrapper with optional arguments:
 
 ```text
 backend condor
-%cpus 1
-%memory 4GB
-%disk 2GB
-@env EIC_SHELL
-%wrapper {EIC_SHELL} --
+%wrapper /path/to/run-in-container.sh --flag value
 ```
-
-On the host that provides the scheduler commands:
-
-```bash
-export EIC_SHELL="$HOME/eic/eic-shell"
-yall-run validate
-yall-run plan
-CAMPAIGN=$(yall-run create)
-yall-run start "$CAMPAIGN"
-```
-
-For EIC work, compilation and local tests run inside `eic-shell`; Condor submission and queue inspection stay on the host. The generated job script invokes the archived `eic-shell` launcher on the worker, with `--` followed by the bundled Python worker command. No LFHCal-specific adapter script is needed.
 
 The executable path and its arguments are separate values. yall-run quotes every token when writing batch scripts, preserving spaces, quotes, empty arguments and literal separators. Existing `%wrapper /path/to/wrapper.sh` files keep their previous behavior. The argument form requires yall-run 0.9.0 or newer.
 
-During creation, yall-run archives the launcher in `environment/` and freezes the argument list. `campaign.json` and the backend's `render.json` record the source path, archived path, size, SHA-256 and `args`. Changes to the source launcher, Yallfile or imported variables afterward do not change that campaign's wrapper invocation.
+During creation, yall-run archives the wrapper executable in `environment/` and freezes the argument list. `campaign.json` and the backend's `render.json` record the source path, archived path, size, SHA-256 and `args`. Changes to the source wrapper, Yallfile or imported variables afterward do not change that campaign's wrapper invocation.
 
-The original launcher's referenced installation, container image, bind paths, runtime executable, campaign directory, inputs and analysis build must still be accessible on execution nodes. A launcher relying on files beside its own script must account for the archived copy's location. Use immutable image references or preserved images when reproducibility matters; copying a script that points at `nightly` does not pin the image. Avoid environment overrides that change the intended container after creating a campaign.
+The wrapped program receives yall's bundled worker command after the declared wrapper arguments. A wrapper must therefore preserve those argument boundaries when it forwards the command. Some launchers do not use a normal argv-forwarding interface and need a small adapter.
+
+### eic-shell
+
+The current container-side EIC `eic-shell` executes argv-style input with `bash -c "$@"`. That does not preserve a multi-argument command: for example, in `root-config --version`, `root-config` becomes the command string and `--version` becomes Bash's `$0`. The reliable non-interactive interface is its standard-input path:
+
+```bash
+echo 'root-config --version' | "$EIC_SHELL"
+```
+
+For queued EIC work, use the adapter in [`examples/eic-shell`](../examples/eic-shell/):
+
+```text
+@env EIC_SHELL
+%wrapper ./run-in-eic-shell.sh {EIC_SHELL}
+```
+
+The adapter shell-quotes the worker argv and pipes one command into the selected `eic-shell`. For EIC work, compilation and local tests still run inside `eic-shell`; Condor submission and queue inspection stay on the host.
+
+Yall archives the adapter, not the selected `eic-shell` installation. The `EIC_SHELL` path is frozen as a wrapper argument and must be visible from execution nodes. Its referenced container image, bind paths, runtime executable, campaign directory, inputs and analysis build must also be accessible there. Use immutable image references or preserved images when reproducibility matters; an adapter that ultimately reaches `nightly` does not pin the image.
 
 The same wrapper mechanism is used by Condor, Slurm and PBS; Slurm/PBS remain experimental. `%getenv` maps directly to Condor and PBS behavior; Slurm currently relies on its normal exported environment. The local backend does not apply `%wrapper`.
 
