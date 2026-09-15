@@ -73,9 +73,20 @@ Application-specific programs can use that path to copy or embed yall provenance
 
 ## Archived execution wrappers
 
-When a `%wrapper` is used for a queued backend, yall-run copies it into the campaign's `environment/` directory and records its source path, size, and SHA-256. This preserves the wrapper that was selected when the campaign was created.
+For queued backends, `%wrapper PATH [ARG ...]` copies the executable into the campaign's `environment/` directory and freezes its arguments separately. The wrapper record contains:
 
-See [BACKENDS.md](BACKENDS.md) for wrapper execution behavior.
+- `source`: resolved source executable path
+- `path`: archived executable path used by the jobs
+- `sha256` and `size_bytes`: fingerprint of the archived executable bytes
+- `args`: ordered argument list, including any literal `--` and empty strings
+
+The hash covers the executable, not the arguments. Both are recorded so a wrapper invocation can be reconstructed without parsing a shell command. The record is stored in `campaign.json` at `execution.<backend>.wrapper` and in `<backend>/render.json`. `start.json` copies the execution policy when the campaign starts. Relational exports of started campaigns preserve this policy in `campaign_start.execution_json`.
+
+Path-only wrappers have an empty argument list. Older campaigns may lack `args` or the manifest-level wrapper record; their existing rendered scripts still define their original invocation.
+
+Only the launcher file is archived, not the resources it refers to. Referenced configuration files, container installations and images must be retained separately. In particular, an archived `eic-shell` that refers to a moving image tag is not an immutable container snapshot.
+
+See [BACKENDS.md](BACKENDS.md#execution-wrappers) for wrapper execution behavior.
 
 ## Mutable state is separate
 
