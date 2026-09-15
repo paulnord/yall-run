@@ -15,7 +15,7 @@ if [[ ! -x "$EIC_SHELL" ]]; then
 fi
 
 # The container-side eic-shell accepts a command reliably through stdin.
-# Quote every argv element as a single-quoted shell word. Use the
+# Quote every argv element as a single-quoted shell word.  Use the
 # '"'"' spelling for an embedded apostrophe so the generated command line
 # contains no escape backslashes for eic-shell's `read` loop to consume.
 quote_word() {
