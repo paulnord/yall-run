@@ -248,6 +248,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
     condor_disk = "2GB"
     condor_getenv = True
     condor_wrapper: str | None = None
+    condor_wrapper_args: Tuple[str, ...] = ()
+    wrapper_lineno = 0
     tasks: List[_TaskTemplate] = []
     variables: Dict[str, str] = {}
     current: _TaskTemplate | None = None
@@ -306,8 +308,12 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                     condor_disk = values[0]
                 elif directive == "getenv" and len(values) == 1:
                     condor_getenv = _parse_bool(values[0], lineno)
-                elif directive == "wrapper" and len(values) == 1:
+                elif directive == "wrapper":
+                    if not values:
+                        raise ValueError(f"line {lineno}: %wrapper needs an executable path")
                     condor_wrapper = values[0]
+                    condor_wrapper_args = tuple(values[1:])
+                    wrapper_lineno = lineno
                 else:
                     raise ValueError(
                         f"line {lineno}: unknown or malformed campaign directive %{directive}"
@@ -414,12 +420,28 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
 
     _apply_static_variables(tasks, variables)
 
+    if condor_wrapper is not None:
+        # Split before substitution: an imported path or argument containing
+        # spaces/quotes must remain one token, not become shell syntax.
+        context = f"line {wrapper_lineno}: %wrapper"
+        wrapper_tokens = tuple(
+            _format(token, variables, context)
+            for token in (condor_wrapper, *condor_wrapper_args)
+        )
+        if not wrapper_tokens[0].strip():
+            raise ValueError(f"{context} needs a nonempty executable path")
+        if any("\0" in token for token in wrapper_tokens):
+            raise ValueError(f"{context} may not contain NUL characters")
+        condor_wrapper, *arguments = wrapper_tokens
+        condor_wrapper_args = tuple(arguments)
+
     condor = CondorSpec(
         request_cpus=condor_cpus,
         request_memory=condor_memory,
         request_disk=condor_disk,
         getenv=condor_getenv,
         wrapper=condor_wrapper,
+        wrapper_args=condor_wrapper_args,
     )
     return campaign_name, backend, condor, tasks
 

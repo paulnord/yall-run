@@ -163,16 +163,42 @@ Other campaign-level directives currently supported are `%getenv` and `%wrapper`
 
 ### Execution wrappers
 
-Use `%wrapper PATH` at campaign level when queued tasks need to run through a site or container wrapper:
+Use `%wrapper PATH [ARG ...]` at campaign level when queued tasks need a site or container launcher. Existing path-only wrappers remain valid:
 
 ```text
 backend condor
 %wrapper /path/to/run-in-container.sh
 ```
 
-When the campaign is created, yall-run archives the wrapper in the campaign's `environment/` directory and records its source path, size, and SHA-256. Queued tasks then invoke the bundled yall worker through that archived copy, so the execution wrapper itself becomes part of the frozen campaign environment.
+A launcher that requires a command separator can be used directly, without a second wrapper script:
 
-The same mechanism is used by the Condor, Slurm, and PBS backends. For scheduler-specific details and the interaction with `%getenv`, see [BACKENDS.md](BACKENDS.md#execution-wrappers).
+```text
+backend condor
+@env EIC_SHELL
+%wrapper {EIC_SHELL} --
+```
+
+Set the launcher path on the **host**, before validating or creating the campaign:
+
+```bash
+export EIC_SHELL="$HOME/eic/eic-shell"
+```
+
+This argument syntax requires yall-run 0.9.0 or newer. The first token is the executable path. Remaining tokens are its arguments, placed **before** the bundled worker command. A literal `--` is passed only when written; yall-run does not insert one automatically. For the example above, a queued job runs:
+
+```text
+<archived-eic-shell> -- /usr/bin/env python3 <bundled-worker> <campaign-dir> <task>
+```
+
+Quote literal paths or arguments containing spaces. `{name}` substitutions from `@set` and `@env` are applied to each already-parsed wrapper token, so an imported path or argument containing spaces stays one argument. Empty arguments are preserved. Missing named values and empty executable paths are errors.
+
+The executable path is relative to the Yallfile directory unless absolute; `~` in that path is expanded at campaign creation. Wrapper arguments are literal values, not shell commands: `$HOME`, globs, redirects, and command substitutions are not evaluated. Use `@env` for environment-derived values. Arguments naming files are not automatically made absolute or archived.
+
+At creation, yall-run copies the executable into the campaign's `environment/` directory and records its source path, archived path, size, SHA-256, and argument list. Queued tasks use the archived executable and frozen arguments, not the original file or a later environment-variable value. The wrapper record is stored in `campaign.json` under `execution.<backend>.wrapper` and in `<backend>/render.json`; `start.json` carries it forward when launched.
+
+This mechanism is shared by Condor, Slurm, and PBS. `%wrapper` is not applied by the local backend; enter the required environment before running a local campaign. The launcher remains responsible for preserving argument boundaries when forwarding the worker command.
+
+Archiving a launcher does **not** archive its installation, scripts it loads, or container image. These must remain accessible to workers, and a moving image tag remains moving. See [BACKENDS.md](BACKENDS.md#execution-wrappers) for host/worker setup and [the eic-shell example](../examples/eic-shell/README.md).
 
 `%cwd` is task-local.
 

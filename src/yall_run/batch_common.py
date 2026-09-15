@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
-from typing import Any
+from typing import Any, Sequence
 
 from .model import CampaignSpec
 from .paths import logical_absolute
@@ -47,12 +47,20 @@ def archive_wrapper(
     shutil.copy2(source, archived)
     archived.chmod(archived.stat().st_mode | 0o100)
     digest = hashlib.sha256(archived.read_bytes()).hexdigest()
-    return {
+    record = {
         "source": str(source),
         "path": str(archived),
         "sha256": digest,
         "size_bytes": archived.stat().st_size,
+        "args": list(spec.condor.wrapper_args),
     }
+    # Include the frozen wrapper in the campaign itself as well as render.json.
+    # begin_campaign also carries execution policy into start.json.
+    manifest_path = campaign_dir / "campaign.json"
+    manifest = read_json(manifest_path)
+    manifest.setdefault("execution", {}).setdefault(backend, {})["wrapper"] = record
+    write_json(manifest_path, manifest)
+    return record
 
 
 def bundle_worker(campaign_dir: Path, backend: str) -> Path:
@@ -69,14 +77,15 @@ def worker_command(
     campaign_dir: Path,
     task_name: str,
     archived_wrapper: Path | None,
+    wrapper_args: Sequence[str] = (),
 ) -> str:
-    command = (
-        f"/usr/bin/env python3 {shlex.quote(str(worker))} "
-        f"{shlex.quote(str(campaign_dir))} {shlex.quote(task_name)}"
-    )
+    argv = ["/usr/bin/env", "python3", str(worker), str(campaign_dir), task_name]
     if archived_wrapper is not None:
-        command = f"{shlex.quote(str(archived_wrapper))} {command}"
-    return command
+        argv = [str(archived_wrapper), *wrapper_args, *argv]
+    elif wrapper_args:
+        raise ValueError("wrapper arguments require a wrapper executable")
+    # Each argument, including empty strings and '--', keeps its boundary.
+    return shlex.join(argv)
 
 
 def retry_shell(command: str, retries: int) -> str:
