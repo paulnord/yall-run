@@ -6,7 +6,6 @@ import subprocess
 from typing import Any
 
 from .batch_common import (
-    archive_wrapper,
     bundle_worker,
     campaign_task_definition,
     campaign_task_names,
@@ -52,9 +51,6 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
     logs_dir.mkdir()
 
     worker = bundle_worker(campaign_dir, "slurm")
-    wrapper_record = archive_wrapper(spec, campaign_dir, "slurm")
-    archived_wrapper = Path(wrapper_record["path"]) if wrapper_record else None
-
     scripts: dict[str, str] = {}
     for index, task in enumerate(spec.tasks):
         node = f"yall_{index:04d}_{slug(task.name)}"
@@ -72,10 +68,7 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             f"#SBATCH --time={format_walltime(walltime, slurm=True)}\n"
             if walltime is not None else ""
         )
-        command = worker_command(
-            worker, campaign_dir, task.name, archived_wrapper,
-            spec.condor.wrapper_args,
-        )
+        command = worker_command(worker, campaign_dir, task.name)
         script.write_text(
             "#!/bin/bash\n"
             f"#SBATCH --job-name={node}\n"
@@ -100,7 +93,6 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             "disk": spec.condor.request_disk,
             "walltime_seconds": spec.condor.request_walltime_seconds,
         },
-        "wrapper": wrapper_record,
         "experimental": True,
     })
     return campaign_dir

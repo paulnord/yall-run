@@ -26,6 +26,7 @@ def test_campaign_records_explicit_executable_identity(tmp_path):
     executable = manifest["tasks"]["work"]["executable"]
 
     assert executable == {
+        "context": "creation_host",
         "argv0": "./tool.sh",
         "path": str(tool),
         "realpath": str(tool.resolve()),

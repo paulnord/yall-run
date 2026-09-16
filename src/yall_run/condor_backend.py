@@ -7,7 +7,7 @@ import re
 import subprocess
 from typing import Any
 
-from .batch_common import archive_wrapper, worker_command
+from .batch_common import worker_command
 from .campaign import (
     begin_campaign,
     cancel_prepared_start,
@@ -52,9 +52,6 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     worker.write_text(worker_source)
     worker.chmod(0o755)
 
-    wrapper_record = archive_wrapper(spec, campaign_dir, "condor")
-    archived_wrapper = Path(wrapper_record["path"]) if wrapper_record else None
-
     node_names: dict[str, str] = {}
     dag_lines: list[str] = []
     for index, task in enumerate(spec.tasks):
@@ -62,10 +59,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         node_names[task.name] = node
 
         node_script = condor_dir / f"{node}.sh"
-        command = worker_command(
-            worker, campaign_dir, task.name, archived_wrapper,
-            spec.condor.wrapper_args,
-        )
+        command = worker_command(worker, campaign_dir, task.name)
         node_script.write_text(
             "#!/bin/bash\n"
             "set -e\n"
@@ -112,7 +106,6 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         "dag": str(dag_path),
         "node_names": node_names,
         "condor": asdict(spec.condor),
-        "wrapper": wrapper_record,
     })
     return campaign_dir
 

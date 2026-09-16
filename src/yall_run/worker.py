@@ -150,8 +150,15 @@ def _next_attempt_number(
     return number
 
 
+def _payload_command(command: str | list[str], wrapper: dict[str, Any] | None) -> list[str]:
+    payload = ["/bin/sh", "-c", command] if isinstance(command, str) else list(command)
+    if wrapper is not None:
+        return [str(wrapper["path"]), *wrapper.get("args", []), *payload]
+    return payload
+
+
 def _run_command(
-    command: str | list[str],
+    command: list[str],
     *,
     cwd: Path | None,
     stdout: Any,
@@ -161,7 +168,7 @@ def _run_command(
     started = time.monotonic()
     proc = subprocess.Popen(
         command,
-        shell=isinstance(command, str),
+        shell=False,
         cwd=str(cwd) if cwd else None,
         stdout=stdout,
         stderr=stderr,
@@ -213,6 +220,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     provenance_path = attempt_dir / "provenance.json"
 
     command = task["command"]
+    wrapper = manifest.get("execution", {}).get("wrapper")
+    launch_command = _payload_command(command, wrapper)
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     worker_pid = os.getpid()
@@ -241,10 +250,14 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "overwrite": task_overwrite,
         },
         "execution": {
+            "context": "host",
+            "wrapper": wrapper,
+            "launch_command": launch_command,
             "started_at": started,
             "hostname": platform.node(),
             "platform": platform.platform(),
             "python": sys.version,
+            "python_executable": sys.executable,
             "pid": worker_pid,
             "worker_pid": worker_pid,
             "campaign_overwrite": campaign_overwrite,
@@ -350,24 +363,37 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "YALL_TASK": task_name,
         "YALL_ATTEMPT": str(number),
         "YALL_PROVENANCE": str(provenance_path),
+        "YALL_TASK_CWD": str(task.get("cwd") or Path.cwd()),
     })
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
+    launch_error: OSError | None = None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
-        command_returncode, timing, command_pid = _run_command(
-            command,
-            cwd=cwd,
-            stdout=out,
-            stderr=err,
-            env=env,
-        )
+        try:
+            command_returncode, timing, command_pid = _run_command(
+                launch_command,
+                cwd=cwd,
+                stdout=out,
+                stderr=err,
+                env=env,
+            )
+        except OSError as exc:
+            # exec/cwd failures must produce a terminal attempt, not stale
+            # "running" state with the only error in a scheduler-level log.
+            launch_error = exc
+            command_returncode = None
+            command_pid = None
+            timing = {"real_seconds": None, "user_seconds": None, "sys_seconds": None}
+            err.write(f"yall-worker: launch failed: {exc}\n")
 
     finished = _utc_now()
     outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
     missing_outputs = _missing_paths(outputs)
-    returncode = command_returncode
+    returncode = 2 if launch_error is not None else command_returncode
     failure: dict[str, Any] | None = None
-    if command_returncode == 0 and missing_outputs:
+    if launch_error is not None:
+        failure = {"kind": "launch_failed", "errno": launch_error.errno, "message": str(launch_error)}
+    elif command_returncode == 0 and missing_outputs:
         returncode = 1
         failure = {"kind": "missing_outputs", "paths": missing_outputs}
         with stderr_path.open("a") as err:
@@ -390,6 +416,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "command_returncode": command_returncode,
         "worker_pid": worker_pid,
         "command_pid": command_pid,
+        "launch_command": launch_command,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,

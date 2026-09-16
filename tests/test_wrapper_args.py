@@ -13,7 +13,7 @@ import pytest
 from yall_run.batch_common import worker_command
 from yall_run.campaign import begin_campaign, create_campaign, start_local
 from yall_run.condor_backend import render_condor
-from yall_run.model import CondorSpec, load_spec
+from yall_run.model import ExecutionSpec, load_spec
 from yall_run.pbs_backend import render_pbs
 from yall_run.slurm_backend import render_slurm
 
@@ -34,8 +34,8 @@ def write_spec(tmp_path, directives, command="echo payload", backend="condor"):
 def test_wrapper_parse_arguments(tmp_path, args):
     path = write_spec(tmp_path, "%wrapper " + shlex.join(["./launcher", *args]))
     spec = load_spec(path)
-    assert spec.condor.wrapper == "./launcher"
-    assert spec.condor.wrapper_args == args
+    assert spec.execution.wrapper == "./launcher"
+    assert spec.execution.wrapper_args == args
 
 
 def test_wrapper_imported_values_are_single_tokens(tmp_path, monkeypatch):
@@ -47,8 +47,8 @@ def test_wrapper_imported_values_are_single_tokens(tmp_path, monkeypatch):
         '@env EIC_SHELL\n@env LABEL\n@set END --\n'
         '%wrapper {EIC_SHELL} --label {LABEL} {END}')
     spec = load_spec(path)
-    assert spec.condor.wrapper == value
-    assert spec.condor.wrapper_args == ("--label", label, "--")
+    assert spec.execution.wrapper == value
+    assert spec.execution.wrapper_args == ("--label", label, "--")
     assert dict(spec.set_values)["EIC_SHELL"] == value
 
 
@@ -57,14 +57,14 @@ def test_wrapper_continuation_and_later_set(tmp_path):
         '%wrapper "{LAUNCHER}" \\\n    --label "two words" \\\n    --\n'
         '@set LAUNCHER "path with spaces/eic-shell"')
     spec = load_spec(path)
-    assert spec.condor.wrapper == "path with spaces/eic-shell"
-    assert spec.condor.wrapper_args == ("--label", "two words", "--")
+    assert spec.execution.wrapper == "path with spaces/eic-shell"
+    assert spec.execution.wrapper_args == ("--label", "two words", "--")
 
 
 def test_replacing_wrapper_clears_old_arguments(tmp_path):
     spec = load_spec(write_spec(tmp_path, "%wrapper ./first --\n%wrapper ./second"))
-    assert spec.condor.wrapper == "./second"
-    assert spec.condor.wrapper_args == ()
+    assert spec.execution.wrapper == "./second"
+    assert spec.execution.wrapper_args == ()
 
 
 @pytest.mark.parametrize("directive, message", [
@@ -99,27 +99,23 @@ def test_wrapper_stays_campaign_level(tmp_path):
         load_spec(path)
 
 
-def test_legacy_model_has_empty_wrapper_args():
-    spec = CondorSpec(wrapper="./legacy.sh")
+def test_execution_policy_is_generic():
+    spec = ExecutionSpec(wrapper="./launcher.sh")
     assert spec.wrapper_args == ()
-    assert asdict(spec)["wrapper"] == "./legacy.sh"
-    assert CondorSpec(**{"wrapper": "./legacy.sh"}).wrapper_args == ()
+    assert asdict(spec)["wrapper"] == "./launcher.sh"
+    with pytest.raises(ValueError, match="require a wrapper"):
+        ExecutionSpec(wrapper_args=("--",))
 
 
-def test_command_quoting_preserves_each_argument(tmp_path):
+def test_host_worker_command_quoting(tmp_path):
     worker = tmp_path / "worker's file.py"
     campaign = tmp_path / "campaign with spaces"
-    wrapper = tmp_path / "wrapper's file"
-    args = ("--label", "$(touch UNEXPECTED)", "", "a\nb", '"quote"', "--")
-    command = worker_command(worker, campaign, "one", wrapper, args)
-    assert shlex.split(command) == [str(wrapper), *args, "/usr/bin/env", "python3",
-                                    str(worker), str(campaign), "one"]
-    with pytest.raises(ValueError, match="require a wrapper"):
-        worker_command(worker, campaign, "one", None, ("--",))
+    command = worker_command(worker, campaign, "one")
+    assert shlex.split(command) == ["/usr/bin/env", "python3", str(worker), str(campaign), "one"]
 
 
 def make_launcher(tmp_path, *, separator=True, exit_code=None):
-    """Stand-in launcher: record argv, consume '--', then exec the real worker."""
+    """Stand-in launcher: record argv, consume '--', then exec the scientific payload."""
     wrapper = tmp_path / "launcher directory" / "eic-shell"
     wrapper.parent.mkdir(exist_ok=True)
     capture = tmp_path / "wrapper-argv.jsonl"
@@ -160,17 +156,15 @@ def test_backend_wrapper_args_are_frozen_and_executed(tmp_path, monkeypatch, bac
     campaign = RENDERERS[backend](spec, tmp_path / "campaign root")
     manifest = json.loads((campaign / "campaign.json").read_text())
     render = json.loads((campaign / backend / "render.json").read_text())
-    record = render["wrapper"]
+    record = manifest["execution"]["wrapper"]
     assert record["args"] == list(args)
     assert record["sha256"] == hashlib.sha256(original).hexdigest()
     assert record["size_bytes"] == len(original)
     assert record["source"] == str(wrapper)
-    assert manifest["execution"][backend]["wrapper"] == record
+    assert "wrapper" not in render
     assert (campaign / "Yallfile").read_bytes() == path.read_bytes()
     assert Path(record["path"]).read_bytes() == original
     assert os.access(record["path"], os.X_OK)
-    if backend == "condor":
-        assert render["condor"]["wrapper_args"] == list(args)
 
     # Editing/removing the source and changing the host environment cannot alter
     # an already rendered campaign's wrapper argv or executable bytes.
@@ -178,14 +172,13 @@ def test_backend_wrapper_args_are_frozen_and_executed(tmp_path, monkeypatch, bac
     monkeypatch.setenv("EIC_SHELL", "/not/the/original/launcher")
     path.write_text("not the original workflow\n")
     begin_campaign(campaign)
-    assert json.loads((campaign / "start.json").read_text())["execution"][backend]["wrapper"] == record
+    assert json.loads((campaign / "start.json").read_text())["execution"]["wrapper"] == record
     script = node_script(campaign, backend)
     subprocess.run(["bash", "-n", str(script)], check=True)
     result = subprocess.run(["bash", str(script)], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     received = json.loads(capture.read_text().splitlines()[0])
-    assert received == [*args, "/usr/bin/env", "python3",
-                        str(campaign / backend / "yall_worker.py"), str(campaign), "one"]
+    assert received == [*args, "echo", "payload"]
     assert not (tmp_path / "UNEXPECTED").exists()
     attempt = campaign / "one_attempt_001"
     assert (attempt / "stdout.log").read_text().strip() == "payload"
@@ -199,8 +192,8 @@ def test_backend_path_only_wrapper_still_runs(tmp_path, backend):
     campaign = RENDERERS[backend](load_spec(path), tmp_path / "campaigns")
     result = subprocess.run(["bash", str(node_script(campaign, backend))], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert json.loads(capture.read_text().splitlines()[0])[0] == "/usr/bin/env"
-    assert json.loads((campaign / backend / "render.json").read_text())["wrapper"]["args"] == []
+    assert json.loads(capture.read_text().splitlines()[0]) == ["echo", "payload"]
+    assert json.loads((campaign / "campaign.json").read_text())["execution"].get("wrapper")["args"] == []
 
 
 @pytest.mark.parametrize("backend", RENDERERS)
@@ -209,7 +202,7 @@ def test_backend_without_wrapper_is_unchanged(tmp_path, backend):
     campaign = RENDERERS[backend](load_spec(path), tmp_path / "campaigns")
     manifest = json.loads((campaign / "campaign.json").read_text())
     assert manifest["execution"] == {backend: {}}
-    assert json.loads((campaign / backend / "render.json").read_text())["wrapper"] is None
+    assert json.loads((campaign / "campaign.json").read_text())["execution"].get("wrapper") is None
     result = subprocess.run(["bash", str(node_script(campaign, backend))], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
@@ -224,7 +217,9 @@ def test_backend_failure_exit_code_and_retries(tmp_path, backend):
     assert result.returncode == 37
     # Condor retries are owned by DAGMan, PBS/Slurm retries by their scripts.
     assert len(capture.read_text().splitlines()) == (1 if backend == "condor" else 2)
-    assert not (campaign / "one_attempt_001").exists()
+    first = json.loads((campaign / "one_attempt_001/attempt.json").read_text())
+    assert first["state"] == "failed"
+    assert first["command_returncode"] == 37
 
 
 @pytest.mark.parametrize("backend", RENDERERS)
@@ -241,16 +236,18 @@ def test_backend_relative_and_tilde_launcher_paths(tmp_path, monkeypatch, backen
     for i, spelling in enumerate((str(wrapper.relative_to(tmp_path)), "~/" + str(wrapper.relative_to(tmp_path)))):
         path = write_spec(tmp_path, "%wrapper " + shlex.quote(spelling) + " --")
         campaign = RENDERERS[backend](load_spec(path), tmp_path / f"campaigns-{i}")
-        record = json.loads((campaign / backend / "render.json").read_text())["wrapper"]
+        record = json.loads((campaign / "campaign.json").read_text())["execution"].get("wrapper")
         assert record["source"] == str(wrapper)
 
 
-def test_local_backend_does_not_apply_batch_wrapper(tmp_path):
-    path = write_spec(tmp_path, "%wrapper ./does-not-exist --", backend="local")
+def test_local_backend_applies_payload_wrapper(tmp_path):
+    wrapper, capture = make_launcher(tmp_path, separator=False)
+    path = write_spec(tmp_path, "%wrapper " + shlex.quote(str(wrapper)), backend="local")
     campaign = create_campaign(load_spec(path), tmp_path / "campaigns")
     start_local(campaign)
     assert (campaign / "one_attempt_001/stdout.log").read_text().strip() == "payload"
-    assert not (campaign / "environment").exists()
+    assert json.loads(capture.read_text().splitlines()[0]) == ["echo", "payload"]
+    assert (campaign / "environment").is_dir()
 
 
 def test_eic_shell_example_parses(monkeypatch):
@@ -258,7 +255,7 @@ def test_eic_shell_example_parses(monkeypatch):
     path = Path(__file__).resolve().parents[1] / "examples/eic-shell/Yallfile"
     spec = load_spec(path)
     assert spec.backend == "condor"
-    assert spec.condor.wrapper == "./run-in-eic-shell.sh"
-    assert spec.condor.wrapper_args == ("/shared/eic/eic-shell",)
+    assert spec.execution.wrapper == "./run-in-eic-shell.sh"
+    assert spec.execution.wrapper_args == ("/shared/eic/eic-shell",)
     assert len(spec.tasks) == 3
     assert spec.tasks[-1].parents == ("root-version", "python-version")

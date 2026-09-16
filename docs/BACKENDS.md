@@ -116,43 +116,50 @@ The queued backends currently assume that the campaign directory and declared pa
 
 ## Execution wrappers
 
-Queued jobs can run through a site or container wrapper with optional arguments:
+`%wrapper PATH [ARG ...]` is a backend-independent **payload** execution policy.
+The local coordinator or a queued node first runs Yall's Python worker on the
+execution host. That worker handles state, guards and logs, then invokes the
+archived wrapper around only the scientific command.
 
 ```text
-backend condor
-%wrapper /path/to/run-in-container.sh --flag value
+host Python worker -> archived wrapper -> scientific payload
 ```
 
-The executable path and its arguments are separate values. yall-run quotes every token when writing batch scripts, preserving spaces, quotes, empty arguments and literal separators. Existing `%wrapper /path/to/wrapper.sh` files keep their previous behavior. The argument form requires yall-run 0.9.0 or newer.
+Each batch execution host needs Python 3.9+ and its standard library, but does
+not need an installed yall-run package: queued scripts use the bundled worker.
+The container only needs the application's dependencies. Do not infer host
+Python availability from the submit node or the container's Python version.
 
-During creation, yall-run archives the wrapper executable in `environment/` and freezes the argument list. `campaign.json` and the backend's `render.json` record the source path, archived path, size, SHA-256 and `args`. Changes to the source wrapper, Yallfile or imported variables afterward do not change that campaign's wrapper invocation.
-
-The wrapped program receives yall's bundled worker command after the declared wrapper arguments. A wrapper must therefore preserve those argument boundaries when it forwards the command.
-
-Some launchers do not use a normal argv-forwarding interface and need a small adapter.
+The wrapper and its arguments are archived once during campaign creation under
+`execution.wrapper`, independently of the selected scheduler. Slurm/PBS remain
+experimental. `%getenv` still maps to Condor and PBS; Slurm uses its usual
+exported environment. Local execution inherits the invoking environment.
 
 ### eic-shell
 
-The current container-side EIC `eic-shell` executes argv-style input with `bash -c "$@"`. That does not preserve a multi-argument command: for example, in `root-config --version`, `root-config` becomes the command string and `--version` becomes Bash's `$0`. The reliable non-interactive interface is its standard-input path:
-
-```bash
-echo 'root-config --version' | "$EIC_SHELL"
-```
-
-For queued EIC work, use the adapter in [`examples/eic-shell`](../examples/eic-shell/):
+Use the same launcher and adapter as before, from the **host**, outside the
+container:
 
 ```text
 @env EIC_SHELL
 %wrapper ./run-in-eic-shell.sh {EIC_SHELL}
 ```
 
-The adapter shell-quotes the worker argv and pipes one command into the selected `eic-shell`. For EIC work, compilation and local tests still run inside `eic-shell`; Condor submission and queue inspection stay on the host.
+The adapter accepts an arbitrary command and sends shell-quoted payload argv to
+`eic-shell` over stdin. It no longer transports `yall_worker.py` into the EIC
+environment. ROOT/Python versions printed by the example tasks describe the
+container; the worker's own provenance describes the host.
 
-Yall archives the adapter, not the selected `eic-shell` installation. The `EIC_SHELL` path is frozen as a wrapper argument and must be visible from execution nodes. Its referenced container image, bind paths, runtime executable, campaign directory, inputs and analysis build must also be accessible there. Use immutable image references or preserved images when reproducibility matters; an adapter that ultimately reaches `nightly` does not pin the image.
+The host must access campaign state, declared inputs/outputs, and the archived
+wrapper. The payload must access its inputs, outputs, executable and working
+directory inside the wrapped environment. Wrappers are responsible for binds,
+working-directory preservation, environment forwarding and exit-status
+propagation. Only payloads that read `YALL_PROVENANCE` need its path available
+inside the container. No automatic mount or path remapping is performed.
 
-The same wrapper mechanism is used by Condor, Slurm and PBS; Slurm/PBS remain experimental. `%getenv` maps directly to Condor and PBS behavior; Slurm currently relies on its normal exported environment. The local backend does not apply `%wrapper`.
-
-See the [Yallfile reference](YALLFILE.md#execution-wrappers) and the [eic-shell example](../examples/eic-shell/README.md).
+See [Execution wrappers](WRAPPERS.md), the [Yallfile reference](YALLFILE.md#execution-wrappers)
+and [`examples/eic-shell`](../examples/eic-shell/README.md). This is a deliberate
+pre-beta behavior change with no migration layer: create new campaigns.
 
 ## Design rule
 

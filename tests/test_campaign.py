@@ -23,7 +23,7 @@ def test_create_then_start_local_campaign(tmp_path, capsys):
     assert (campaign_dir / "Yallfile").read_bytes() == source.read_bytes()
     assert campaign_status(campaign_dir)["counts"] == {"pending": 3}
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
-    assert manifest["schema"] == 7
+    assert manifest["schema"] == 8
     assert manifest["execution"] == {"local": {"jobs": 1}}
     assert manifest["task_order"] == ["left", "right", "finish"]
     assert manifest["tasks"]["finish"]["parents"] == ["left", "right"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import shlex
 import shutil
@@ -159,6 +160,7 @@ def _plan_json(spec: object) -> dict[str, object]:
         "name": spec.name,
         "backend": spec.backend,
         "source": str(spec.source),
+        "execution": asdict(spec.execution),
         "tasks": tasks,
     }
 
@@ -210,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(_plan_dot(spec))
                 return 0
             print(f"Campaign: {spec.name} (backend={spec.backend})")
+            if spec.execution.wrapper:
+                wrapper = shlex.join([spec.execution.wrapper, *spec.execution.wrapper_args])
+                print(f"Payload wrapper: {wrapper}")
             for task in spec.tasks:
                 extras = []
                 if task.parents:

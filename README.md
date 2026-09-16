@@ -82,6 +82,7 @@ That is enough to get started. The details live in the focused documentation bel
 - [Resources](docs/RESOURCES.md) - portable CPU, memory, disk, and wall-time requests
 - [Campaigns](docs/CAMPAIGNS.md) - create/start lifecycle, frozen campaigns, state, and attempt directories
 - [Resume](docs/RESUME.md) - recover interrupted campaigns on local, Condor, Slurm, and PBS backends
+- [Execution wrappers](docs/WRAPPERS.md) - host-native worker, payload environments, and launcher contract
 - [Backends](docs/BACKENDS.md) - local execution, Condor/DAGMan, Slurm, PBS, resources, and wrappers
 - [Provenance](docs/PROVENANCE.md) - campaign and attempt records and provenance exposed to programs
 - [Export](docs/EXPORT.md) - SQLite, SQL, and CSV export for provenance queries
