@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -412,12 +413,23 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     return returncode
 
 
-def _mark_payload_started() -> bool:
-    marker = os.environ.get("YALL_STARTUP_MARKER")
-    if not marker:
+def _startup_marker(campaign_dir: str | Path, task_name: str) -> Path | None:
+    campaign = Path(campaign_dir).expanduser()
+    if not campaign.is_absolute():
+        campaign = Path.cwd() / campaign
+    marker_dir = campaign.absolute() / "condor" / "startup"
+    if not marker_dir.is_dir():
+        return None
+    marker_id = hashlib.sha256(task_name.encode("utf-8")).hexdigest()
+    return marker_dir / f"{marker_id}.started"
+
+
+def _mark_payload_started(campaign_dir: str | Path, task_name: str) -> bool:
+    marker = _startup_marker(campaign_dir, task_name)
+    if marker is None:
         return True
     try:
-        Path(marker).touch()
+        marker.touch()
     except OSError as exc:
         print(f"yall-worker: could not write startup marker {marker}: {exc}", file=sys.stderr)
         return False
@@ -425,11 +437,11 @@ def _mark_payload_started() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if not _mark_payload_started():
-        return 2
     values = list(sys.argv[1:] if argv is None else argv)
     if len(values) != 2:
         print("usage: yall_worker.py CAMPAIGN_DIR TASK", file=sys.stderr)
+        return 2
+    if not _mark_payload_started(values[0], values[1]):
         return 2
     try:
         return run_task(values[0], values[1])
