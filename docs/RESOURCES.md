@@ -25,9 +25,11 @@ Here `prepare` requests five minutes and `analyze` requests two hours.
 ## Wall time: `%time`
 
 Wall time is elapsed job runtime, not CPU time and not time waiting in the queue.
-It is a limit for each scheduled task job, not the sum for the campaign. Include
-container startup and other job setup in the requested budget. Scheduler policy
-controls enforcement and may impose a lower queue/partition maximum.
+`%time` requests a runtime budget for each scheduled task job, not the sum for
+the campaign. Include container startup and other job setup in the requested
+budget. Enforcement depends on the backend and site policy, which may impose a
+lower queue/partition maximum. In particular, the Condor mapping below requires
+supporting site policy; it is not a universally enforced timeout.
 
 Accepted finite durations are:
 
@@ -59,15 +61,63 @@ For `%time 2h`:
 
 | Backend | Generated request |
 | --- | --- |
-| HTCondor | `+MaxRuntime = 7200` in the task submit description |
+| HTCondor (requires site support for `MaxRuntime`) | `+MaxRuntime = 7200` in the task submit description |
 | Slurm | `#SBATCH --time=02:00:00` |
 | PBS | `#PBS -l walltime=02:00:00` |
 | Local | Record the request in provenance; no timeout is enforced |
 
-`MaxRuntime` is a **site-supported custom ClassAd**, used by CERN, not a universal
-HTCondor timeout setting. Another HTCondor pool must have policy that honors it.
-Yall does not emit `JobFlavour` or change a pool's removal/hold policy.
-See the [CERN/LHCb submission guidance](https://lhcb.github.io/starterkit-lessons/self-guided-lessons/htcondor-more-options.html#resources-and-requirements).
+### HTCondor: site runtime policy versus execution timeout
+
+**The Condor `%time` mapping sets `MaxRuntime`. It does not set HTCondor's
+separate `allowed_execute_duration` timeout. These are not aliases.**
+
+The leading `+` is standard HTCondor syntax for adding a job ClassAd attribute.
+The meaning of `MaxRuntime`, however, is **site-defined**, not built into
+HTCondor as a universal runtime request. CERN and FZU both document this
+convention, so it is not CERN-only. Other pools may use a different attribute;
+DESY NAF, for example, documents `+RequestRuntime`. Yall currently emits
+`+MaxRuntime` for Condor and does not automatically detect or substitute a
+site's alternative. Check the target pool's documentation before relying on it.
+
+Without policy that reads `MaxRuntime`, the attribute is just stored in the job
+ClassAd: an unfamiliar custom attribute does not itself cause an unsupported
+option error, but it neither grants the requested runtime nor enforces a
+timeout. The pool's other limits still apply. At supporting sites such as CERN
+and FZU, site policy also enforces the requested maximum. Thus the distinction
+is **site-defined policy versus a built-in timeout**, not simply "request
+versus enforcement."
+
+| Submit setting | Interpretation | Set by Yall's Condor `%time` mapping? |
+| --- | --- | --- |
+| `+MaxRuntime = 7200` | Site-defined runtime request/limit, in seconds; scheduling and enforcement depend on the pool. | Yes |
+| `allowed_execute_duration = 7200` | HTCondor's built-in execution-duration limit, in seconds; exceeding it puts the job on hold (hold code 47). | No |
+
+`allowed_execute_duration` excludes HTCondor file-transfer time. For
+self-checkpointing jobs, it limits the execution interval between checkpoints.
+Do not assume a site's `MaxRuntime` policy uses identical accounting.
+
+For illustration, a manually configured submit description could contain both:
+
+```text
+# Site-defined two-hour runtime request/limit:
++MaxRuntime = 7200
+# Independent one-hour HTCondor execution timeout:
+allowed_execute_duration = 3600
+```
+
+For an ordinary job without self-checkpointing, the second setting can hold it
+after one hour even when site policy permits two hours. Conversely, a longer
+`allowed_execute_duration` cannot override a shorter site limit. Both policies
+apply independently. **Yall does not emit the second line**, add `JobFlavour`,
+or install an automatic removal/hold policy as a fallback. A pool may still
+supply its own policies independently of Yall.
+
+References: [HTCondor submit-language documentation](https://htcondor.readthedocs.io/en/latest/man-pages/htcondor-jdl.html),
+[CERN/LHCb runtime guidance](https://lhcb.github.io/starterkit-lessons/self-guided-lessons/htcondor-more-options.html#resources-and-requirements),
+[FZU execution-time policy](https://www.farm.particle.cz/documentation/job-submission-file-examples/htcondor-batch-system/job-restrictions-and-resource-limits/job-execution-time/),
+and [DESY NAF submit settings](https://docs.desy.de/naf/documentation/job-submit/).
+
+### Other backends and retries
 
 Slurm accepts seconds in the rendered request but rounds them up to the next
 minute. Thus `%time 61s` emits `--time=00:01:01` and Slurm grants a two-minute
