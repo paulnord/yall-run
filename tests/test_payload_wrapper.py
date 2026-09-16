@@ -95,8 +95,11 @@ def test_relative_executable_cwd_and_argument_boundaries(tmp_path, backend):
     assert (cdir / "one_attempt_001/stdout.log").read_text().splitlines() == [
         *arguments, str(cwd), str(cwd)]
     assert not (cwd / "BAD").exists()
-    assert record(cdir)["command"] == ["./payload.sh", *arguments]
-    assert record(cdir)["launch_command"][1:] == ["./payload.sh", *arguments]
+    attempt = record(cdir)
+    assert attempt["command"] == ["./payload.sh", *arguments]
+    assert attempt["launch_command"][1:] == ["./payload.sh", *arguments]
+    assert isinstance(attempt["launch_pid"], int)
+    assert attempt["launch_pid"] != attempt["worker_pid"]
 
 
 @pytest.mark.parametrize("backend", RENDERERS)
@@ -153,7 +156,7 @@ def test_missing_archived_wrapper_finalizes_failed_attempt(tmp_path, backend):
     assert attempt["finished_at"]
     assert attempt["failure"]["kind"] == "launch_failed"
     assert attempt["failure"]["errno"] == 2
-    assert attempt["command_pid"] is None
+    assert attempt["launch_pid"] is None
     assert attempt["command_returncode"] is None
     assert "launch failed" in (cdir / "one_attempt_001/stderr.log").read_text()
 

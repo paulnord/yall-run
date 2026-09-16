@@ -97,8 +97,8 @@ version/interpreter, `execution.wrapper` (the frozen record, or null), and
 `execution.launch_command` (the exact planned argv). The task's `command` remains
 the scientific command as written after expansion. A guard can reject the task
 before that planned invocation is executed. Final attempts also record
-`launch_command`; `command_pid` identifies the immediate child (the wrapper
-when present), not necessarily the final application process. Timing includes
+`launch_command`; `launch_pid` identifies the host worker's immediate child
+(the wrapper when present), not necessarily the final application process. Timing includes
 wrapper setup and payload execution, not queue wait.
 
 This does not probe or assert the payload's Python, OS or container digest.

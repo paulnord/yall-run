@@ -189,8 +189,8 @@ def test_argv_command_file_and_launch_provenance(tmp_path):
     assert provenance["task"]["outputs"][0]["path"] == str(tmp_path / "output.txt")
     assert provenance["execution"]["pid"] == provenance["execution"]["worker_pid"]
     assert attempt["worker_pid"] == provenance["execution"]["worker_pid"]
-    assert isinstance(attempt["command_pid"], int)
-    assert attempt["command_pid"] > 0
+    assert isinstance(attempt["launch_pid"], int)
+    assert attempt["launch_pid"] > 0
     assert stdout[0] == "transform"
     assert stdout[1] == str(attempt_dir / "provenance.json")
     assert (tmp_path / "output.txt").read_text() == "HELLO\n"
@@ -248,7 +248,7 @@ def test_missing_declared_input_fails_without_running_command(tmp_path, monkeypa
     assert attempt["state"] == "failed"
     assert attempt["returncode"] == 2
     assert attempt["command_returncode"] is None
-    assert attempt["command_pid"] is None
+    assert attempt["launch_pid"] is None
     assert attempt["failure"] == {
         "kind": "missing_inputs",
         "paths": [str(tmp_path / "missing.txt")],
@@ -290,7 +290,7 @@ def test_missing_declared_output_fails_after_successful_command(tmp_path, monkey
     assert attempt["state"] == "failed"
     assert attempt["returncode"] == 1
     assert attempt["command_returncode"] == 0
-    assert isinstance(attempt["command_pid"], int)
+    assert isinstance(attempt["launch_pid"], int)
     assert attempt["failure"] == {
         "kind": "missing_outputs",
         "paths": [str(tmp_path / "output.txt")],

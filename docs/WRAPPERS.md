@@ -78,7 +78,9 @@ Wrapper startup stdout/stderr and payload stdout/stderr go to the task attempt's
 attempt with that exit status. A host launch failure (for example, a missing
 archived wrapper, unwrapped program or cwd) records `failure.kind=launch_failed`,
 the errno/message, a finished timestamp, and return code 2. No child PID or
-command exit code is invented when the process never started.
+command exit code is invented when the process never started. Final attempt records
+call the immediate host child PID `launch_pid`; Yall does not claim that this is the
+PID of a process created later inside a container or launcher.
 
 Missing inputs and protected existing outputs fail **before** wrapper invocation.
 Missing declared outputs after an otherwise successful invocation also fail the

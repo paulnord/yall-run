@@ -175,7 +175,7 @@ def _run_command(
         text=True,
         env=env,
     )
-    command_pid = int(proc.pid)
+    launch_pid = int(proc.pid)
 
     user_seconds: float | None = None
     sys_seconds: float | None = None
@@ -197,7 +197,7 @@ def _run_command(
         "user_seconds": user_seconds,
         "sys_seconds": sys_seconds,
     }
-    return int(proc.returncode), timing, command_pid
+    return int(proc.returncode), timing, launch_pid
 
 
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
@@ -283,7 +283,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "returncode": 2,
             "command_returncode": None,
             "worker_pid": worker_pid,
-            "command_pid": None,
+            "launch_pid": None,
             "command": command,
             "cwd": task.get("cwd"),
             "inputs": inputs,
@@ -320,7 +320,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "returncode": 2,
             "command_returncode": None,
             "worker_pid": worker_pid,
-            "command_pid": None,
+            "launch_pid": None,
             "command": command,
             "cwd": task.get("cwd"),
             "inputs": inputs,
@@ -370,7 +370,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     launch_error: OSError | None = None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
         try:
-            command_returncode, timing, command_pid = _run_command(
+            command_returncode, timing, launch_pid = _run_command(
                 launch_command,
                 cwd=cwd,
                 stdout=out,
@@ -382,7 +382,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             # "running" state with the only error in a scheduler-level log.
             launch_error = exc
             command_returncode = None
-            command_pid = None
+            launch_pid = None
             timing = {"real_seconds": None, "user_seconds": None, "sys_seconds": None}
             err.write(f"yall-worker: launch failed: {exc}\n")
 
@@ -415,7 +415,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "returncode": returncode,
         "command_returncode": command_returncode,
         "worker_pid": worker_pid,
-        "command_pid": command_pid,
+        "launch_pid": launch_pid,
         "launch_command": launch_command,
         "command": command,
         "cwd": task.get("cwd"),
