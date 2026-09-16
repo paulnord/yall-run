@@ -11,6 +11,11 @@ The execution host runs Yall's worker with a supported Python (3.9+) and its
 standard library. Queued backends bundle the worker; installing the yall-run
 package on every worker node or inside the container is unnecessary.
 
+This Python requirement belongs to Yall, not to the scheduler. HTCondor, Slurm
+and PBS can launch other executables or wrapped environments without Python;
+a Yall task specifically needs host Python to run its bundled worker before the
+scientific payload enters the wrapper.
+
 The worker, outside the wrapper, owns input/output guards, attempt numbering,
 state, logs and launch provenance. It invokes the wrapper around the scientific
 payload and records the outcome after the wrapper exits. A C++ payload does not
@@ -78,9 +83,9 @@ Wrapper startup stdout/stderr and payload stdout/stderr go to the task attempt's
 attempt with that exit status. A host launch failure (for example, a missing
 archived wrapper, unwrapped program or cwd) records `failure.kind=launch_failed`,
 the errno/message, a finished timestamp, and return code 2. No child PID or
-command exit code is invented when the process never started. Final attempt records
-call the immediate host child PID `launch_pid`; Yall does not claim that this is the
-PID of a process created later inside a container or launcher.
+command exit code is invented when the process never started. Final attempt
+records call the immediate host child PID `launch_pid`; Yall does not claim that
+this is the PID of a process created later inside a container or launcher.
 
 Missing inputs and protected existing outputs fail **before** wrapper invocation.
 Missing declared outputs after an otherwise successful invocation also fail the
