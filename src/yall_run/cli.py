@@ -11,15 +11,15 @@ from .campaign import (
     campaign_manifest,
     campaign_status,
     create_campaign,
-    resume_local,
     retry_task,
     start_local,
 )
-from .condor_backend import condor_queue_status, render_condor, submit_rendered
+from .condor_backend import render_condor, submit_rendered
 from .export import export_provenance
 from .model import load_spec
-from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
-from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
+from .pbs_backend import render_pbs, submit_pbs
+from .slurm_backend import render_slurm, submit_slurm
+from .recovery import QUEUED_BACKENDS, reconcile_status, resume_campaign
 from .worker import run_task
 
 
@@ -82,9 +82,17 @@ def _parser() -> argparse.ArgumentParser:
         help="permit all tasks in this start to use pre-existing declared outputs",
     )
 
-    resume = sub.add_parser("resume", help="continue one started local campaign")
+    resume = sub.add_parser("resume", help="continue one started campaign")
     _friendly_sections(resume)
     resume.add_argument("campaign_dir")
+    resume.add_argument(
+        "--dry-run", action="store_true",
+        help="queued backends: inspect recovery without submitting or cancelling jobs",
+    )
+    resume.add_argument(
+        "--cancel-pending", action="store_true",
+        help="Slurm/PBS: cancel surviving pending/held jobs before rebuilding dependencies",
+    )
 
     status = sub.add_parser("status", help="show campaign status")
     _friendly_sections(status)
@@ -261,18 +269,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "resume":
-            resume_local(args.campaign_dir)
-            return 0
+            return resume_campaign(
+                args.campaign_dir, dry_run=args.dry_run,
+                cancel_pending=args.cancel_pending,
+            )
 
         if args.command == "status":
             data = campaign_status(args.campaign_dir)
             backend = data["backend"]
-            if backend == "condor":
-                data["scheduler"] = condor_queue_status(args.campaign_dir)
-            elif backend == "slurm":
-                data["scheduler"] = slurm_queue_status(args.campaign_dir)
-            elif backend == "pbs":
-                data["scheduler"] = pbs_queue_status(args.campaign_dir)
+            if backend in QUEUED_BACKENDS:
+                data = reconcile_status(args.campaign_dir, data)
             if args.json:
                 print(json.dumps(data, indent=2, sort_keys=True))
             else:
@@ -288,7 +294,9 @@ def main(argv: list[str] | None = None) -> int:
                         f"  {task['name']:<20} {task['state']:<10} "
                         f"attempts={task['attempts']}{suffix}"
                     )
-                if data.get("scheduler") is not None:
+                if scheduler.get("query_ok") is False:
+                    print(f"  scheduler: unknown ({scheduler.get('error', 'query failed')})")
+                elif data.get("scheduler") is not None:
                     counts = scheduler.get("counts", {})
                     node_summary = ", ".join(
                         f"{name}={count}" for name, count in sorted(counts.items())
