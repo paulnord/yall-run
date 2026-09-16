@@ -233,6 +233,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "attempt": number,
             "parents": task.get("parents", []),
             "retries": task.get("retries", 0),
+            "startup_retries": task.get("startup_retries", 0),
             "command": command,
             "cwd": task.get("cwd"),
             "resources": task.get("resources", {}),
@@ -411,7 +412,21 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     return returncode
 
 
+def _mark_payload_started() -> bool:
+    marker = os.environ.get("YALL_STARTUP_MARKER")
+    if not marker:
+        return True
+    try:
+        Path(marker).touch()
+    except OSError as exc:
+        print(f"yall-worker: could not write startup marker {marker}: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
+    if not _mark_payload_started():
+        return 2
     values = list(sys.argv[1:] if argv is None else argv)
     if len(values) != 2:
         print("usage: yall_worker.py CAMPAIGN_DIR TASK", file=sys.stderr)
