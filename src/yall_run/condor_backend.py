@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -43,6 +44,11 @@ def _slug(name: str) -> str:
     return value or "task"
 
 
+def _startup_marker(campaign_dir: Path, task_name: str) -> Path:
+    marker_id = hashlib.sha256(task_name.encode("utf-8")).hexdigest()
+    return campaign_dir / "condor" / "startup" / f"{marker_id}.started"
+
+
 def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     campaign_dir = create_campaign(spec, root, backend="condor")
     condor_dir = campaign_dir / "condor"
@@ -66,7 +72,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         node = f"yall_{index:04d}_{_slug(task.name)}"
         node_names[task.name] = node
 
-        marker = startup_dir / f"{node}.started"
+        marker = _startup_marker(campaign_dir, task.name)
         command = worker_command(
             worker, campaign_dir, task.name, archived_wrapper,
             spec.condor.wrapper_args,
@@ -78,7 +84,6 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             "#!/bin/bash\n"
             "set -u\n"
             f"marker={marker_word}\n"
-            "export YALL_STARTUP_MARKER=\"$marker\"\n"
             "if ! rm -f \"$marker\"; then\n"
             "    echo \"yall: could not clear startup marker: $marker\" >&2\n"
             f"    exit {_STARTUP_FAILURE_EXIT}\n"
