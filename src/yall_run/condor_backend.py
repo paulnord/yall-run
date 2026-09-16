@@ -67,26 +67,10 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         node_names[task.name] = node
 
         marker = startup_dir / f"{node}.started"
-        payload_script = condor_dir / f"{node}.payload.sh"
-        payload_command = worker_command(
-            worker, campaign_dir, task.name, None
+        command = worker_command(
+            worker, campaign_dir, task.name, archived_wrapper,
+            spec.condor.wrapper_args,
         )
-        payload_script.write_text(
-            "#!/bin/bash\n"
-            "set -e\n"
-            f": > {shlex.quote(str(marker))}\n"
-            f"exec {payload_command}\n"
-        )
-        payload_script.chmod(0o755)
-
-        if archived_wrapper is not None:
-            command = shlex.join([
-                str(archived_wrapper),
-                *spec.condor.wrapper_args,
-                str(payload_script),
-            ])
-        else:
-            command = shlex.join([str(payload_script)])
 
         node_script = condor_dir / f"{node}.sh"
         marker_word = shlex.quote(str(marker))
@@ -94,6 +78,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             "#!/bin/bash\n"
             "set -u\n"
             f"marker={marker_word}\n"
+            "export YALL_STARTUP_MARKER=\"$marker\"\n"
             "if ! rm -f \"$marker\"; then\n"
             "    echo \"yall: could not clear startup marker: $marker\" >&2\n"
             f"    exit {_STARTUP_FAILURE_EXIT}\n"
