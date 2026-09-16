@@ -62,6 +62,14 @@ jobs:
               raise SystemExit('unexpected command_pid remains in payload wrapper tests')
           p.write_text(s)
 
+          p = Path('tests/test_campaign.py')
+          s = p.read_text()
+          count = s.count('attempt["command_pid"]')
+          if count != 3:
+              raise SystemExit(f'expected three campaign command_pid assertions, found {count}')
+          s = s.replace('attempt["command_pid"]', 'attempt["launch_pid"]')
+          p.write_text(s)
+
           p = Path('docs/PROVENANCE.md')
           s = p.read_text()
           old = ('`launch_command`; `command_pid` identifies the immediate child (the wrapper\n'
@@ -96,6 +104,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git rm .github/workflows/payload-wrapper-pid-tweak.yml
-          git add src/yall_run/worker.py tests/test_payload_wrapper.py docs/PROVENANCE.md docs/WRAPPERS.md
+          git add src/yall_run/worker.py tests/test_payload_wrapper.py tests/test_campaign.py docs/PROVENANCE.md docs/WRAPPERS.md
           git commit -m 'Name wrapper process PID as launch_pid'
           git push origin HEAD:feat/payload-wrapper
