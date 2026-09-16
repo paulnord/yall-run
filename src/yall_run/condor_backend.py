@@ -16,6 +16,7 @@ from .campaign import (
 )
 from .model import CampaignSpec
 from .paths import logical_absolute
+from .walltime import effective_walltime
 
 _CLUSTER_RE = re.compile(r"cluster\s+(\d+)", re.IGNORECASE)
 _STATUS_NAMES = {
@@ -75,6 +76,10 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         request_cpus = task.resources.cpus or spec.condor.request_cpus
         request_memory = task.resources.memory or spec.condor.request_memory
         request_disk = task.resources.disk or spec.condor.request_disk
+        walltime = effective_walltime(
+            task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+        )
+        time_line = f"+MaxRuntime = {walltime}\n" if walltime is not None else ""
 
         submit = condor_dir / f"{node}.sub"
         submit.write_text(
@@ -86,6 +91,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             f"request_cpus = {request_cpus}\n"
             f"request_memory = {request_memory}\n"
             f"request_disk = {request_disk}\n"
+            f"{time_line}"
             f"getenv = {'True' if spec.condor.getenv else 'False'}\n"
             "should_transfer_files = NO\n"
             "queue 1\n"

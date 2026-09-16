@@ -21,6 +21,7 @@ from .model import load_spec
 from .pbs_backend import pbs_queue_status, render_pbs, submit_pbs
 from .slurm_backend import render_slurm, slurm_queue_status, submit_slurm
 from .worker import run_task
+from .walltime import effective_walltime, format_walltime
 
 
 def _friendly_sections(parser: argparse.ArgumentParser, positional_title: str = "arguments") -> None:
@@ -139,6 +140,9 @@ def _plan_json(spec: object) -> dict[str, object]:
                 "cpus": task.resources.cpus,
                 "memory": task.resources.memory,
                 "disk": task.resources.disk,
+                "walltime_seconds": effective_walltime(
+                    task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+                ),
             },
             "inputs": [{"role": ref.role, "path": ref.path} for ref in task.inputs],
             "outputs": [{"role": ref.role, "path": ref.path} for ref in task.outputs],
@@ -210,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
                     extras.append(f"memory={task.resources.memory}")
                 if task.resources.disk is not None:
                     extras.append(f"disk={task.resources.disk}")
+                walltime = effective_walltime(
+                    task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+                )
+                if walltime is not None:
+                    extras.append(f"time={format_walltime(walltime)}")
                 if task.overwrite:
                     extras.append("overwrite")
                 suffix = f" [{' '.join(extras)}]" if extras else ""

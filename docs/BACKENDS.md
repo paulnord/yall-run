@@ -47,6 +47,7 @@ Resource requests are task policy in the Yallfile:
 heavy-analysis:
     %cpus 4
     %memory 8GB
+    %time 2h
     ./Analyze input.root
 ```
 
@@ -59,7 +60,9 @@ Portable resource concepts are translated where the backend has a natural mappin
 
 `%disk` maps directly for Condor. The experimental Slurm and PBS backends record disk policy but deliberately do not invent a site-specific scratch or disk request.
 
-For the full policy syntax, see [YALLFILE.md](YALLFILE.md).
+`%time 2h` becomes Condor `+MaxRuntime = 7200`, Slurm `--time=02:00:00`, or PBS `walltime=02:00:00`. Condor enforcement depends on site policy; Slurm rounds second-level requests up to whole minutes. Local execution records wall time but does not enforce it. An omitted request leaves scheduler defaults unchanged.
+
+For the full policy syntax, see [YALLFILE.md](YALLFILE.md) and [Resources](RESOURCES.md).
 
 ## HTCondor / DAGMan
 

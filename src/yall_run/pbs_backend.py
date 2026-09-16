@@ -25,6 +25,7 @@ from .campaign import (
     prepare_campaign_start,
 )
 from .model import CampaignSpec
+from .walltime import effective_walltime, format_walltime
 
 _PBS_STATES = {
     "Q": "idle",
@@ -68,6 +69,13 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
             "pbs",
         )
         disk = task.resources.disk or spec.condor.request_disk
+        walltime = effective_walltime(
+            task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+        )
+        time_line = (
+            f"#PBS -l walltime={format_walltime(walltime)}\n"
+            if walltime is not None else ""
+        )
         command = worker_command(
             worker, campaign_dir, task.name, archived_wrapper,
             spec.condor.wrapper_args,
@@ -77,6 +85,7 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
             "#!/bin/bash\n"
             f"#PBS -N {job_name}\n"
             f"#PBS -l select=1:ncpus={cpus}:mem={memory}\n"
+            f"{time_line}"
             f"#PBS -o {logs_dir / (node + '.out')}\n"
             f"#PBS -e {logs_dir / (node + '.err')}\n"
             + getenv_line
@@ -94,6 +103,7 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
             "cpus": spec.condor.request_cpus,
             "memory": spec.condor.request_memory,
             "disk": spec.condor.request_disk,
+            "walltime_seconds": spec.condor.request_walltime_seconds,
         },
         "wrapper": wrapper_record,
         "experimental": True,

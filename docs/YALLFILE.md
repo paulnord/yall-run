@@ -145,10 +145,11 @@ heavy-analysis:
     %cpus 4
     %memory 8GB
     %disk 10GB
+    %time 2h
     ./Analyze input.root
 ```
 
-Task-level resource values override campaign defaults. Condor maps CPU, memory, and disk requests directly. Slurm maps CPU and memory requests. PBS maps CPU and memory requests. Disk requests remain in provenance for Slurm and PBS because scratch resources are site-specific.
+Task-level resource values override campaign defaults. Condor maps CPU, memory, and disk requests directly. Slurm and PBS map CPU and memory requests. `%time` requests elapsed wall time for each scheduled task job: `2h`, `90m`, `1h30m`, or `02:00:00`, for example. It maps to Condor `+MaxRuntime` (a site convention supported by CERN), Slurm `--time`, or PBS `walltime`. The local backend records it without enforcing a timeout. Omitting `%time` leaves the scheduler default unchanged. See [Resources](RESOURCES.md) for duration syntax, scheduler rounding, retry semantics, and frozen-campaign behavior. Disk requests remain in provenance for Slurm and PBS because scratch resources are site-specific.
 
 Campaign-level defaults can appear outside a task:
 
@@ -157,6 +158,7 @@ backend condor
 %cpus 1
 %memory 2GB
 %disk 2GB
+%time 2h
 ```
 
 Other campaign-level directives currently supported are `%getenv` and `%wrapper`.
