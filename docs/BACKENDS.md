@@ -60,7 +60,11 @@ Portable resource concepts are translated where the backend has a natural mappin
 
 `%disk` maps directly for Condor. The experimental Slurm and PBS backends record disk policy but deliberately do not invent a site-specific scratch or disk request.
 
-`%time 2h` becomes Condor `+MaxRuntime = 7200`, Slurm `--time=02:00:00`, or PBS `walltime=02:00:00`. Condor enforcement depends on site policy; Slurm rounds second-level requests up to whole minutes. Local execution records wall time but does not enforce it. An omitted request leaves scheduler defaults unchanged.
+`%time 2h` becomes Condor `+MaxRuntime = 7200`, Slurm `--time=02:00:00`, or PBS `walltime=02:00:00`. Slurm rounds second-level requests up to whole minutes. Local execution records wall time but does not enforce it. An omitted request leaves scheduler defaults unchanged.
+
+**Condor's `MaxRuntime` mapping requires site support.** CERN and FZU support this custom job ClassAd attribute; it is not CERN-only or a universal HTCondor timeout. A pool with no policy using it simply stores the attribute without changing its runtime limits. Supporting sites may use it for both scheduling and enforcement. Other pools may require a different attribute, such as DESY NAF's `RequestRuntime`; Yall does not detect or translate that alternative automatically.
+
+**Yall's `%time` does not set `allowed_execute_duration`.** That is HTCondor's separate built-in execution-duration limit, which puts a job on hold when exceeded. Setting it cannot override a shorter site-enforced limit, and setting `MaxRuntime` does not implicitly enable it. See [site runtime policy versus execution timeout](RESOURCES.md#htcondor-site-runtime-policy-versus-execution-timeout) for their independent behavior, timing details, and primary documentation.
 
 For the full policy syntax, see [YALLFILE.md](YALLFILE.md) and [Resources](RESOURCES.md).
 
@@ -123,7 +127,9 @@ The executable path and its arguments are separate values. yall-run quotes every
 
 During creation, yall-run archives the wrapper executable in `environment/` and freezes the argument list. `campaign.json` and the backend's `render.json` record the source path, archived path, size, SHA-256 and `args`. Changes to the source wrapper, Yallfile or imported variables afterward do not change that campaign's wrapper invocation.
 
-The wrapped program receives yall's bundled worker command after the declared wrapper arguments. A wrapper must therefore preserve those argument boundaries when it forwards the command. Some launchers do not use a normal argv-forwarding interface and need a small adapter.
+The wrapped program receives yall's bundled worker command after the declared wrapper arguments. A wrapper must therefore preserve those argument boundaries when it forwards the command.
+
+Some launchers do not use a normal argv-forwarding interface and need a small adapter.
 
 ### eic-shell
 
