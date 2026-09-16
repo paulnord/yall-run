@@ -25,6 +25,7 @@ from .campaign import (
     prepare_campaign_start,
 )
 from .model import CampaignSpec
+from .walltime import effective_walltime, format_walltime
 
 _SLURM_STATES = {
     "PENDING": "idle",
@@ -64,6 +65,13 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             "slurm",
         )
         disk = task.resources.disk or spec.condor.request_disk
+        walltime = effective_walltime(
+            task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+        )
+        time_line = (
+            f"#SBATCH --time={format_walltime(walltime, slurm=True)}\n"
+            if walltime is not None else ""
+        )
         command = worker_command(
             worker, campaign_dir, task.name, archived_wrapper,
             spec.condor.wrapper_args,
@@ -73,6 +81,7 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             f"#SBATCH --job-name={node}\n"
             f"#SBATCH --cpus-per-task={cpus}\n"
             f"#SBATCH --mem={memory}\n"
+            f"{time_line}"
             f"#SBATCH --output={logs_dir / (node + '.out')}\n"
             f"#SBATCH --error={logs_dir / (node + '.err')}\n"
             f"# yall requested disk={disk}; no portable Slurm disk request is emitted\n"
@@ -89,6 +98,7 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
             "cpus": spec.condor.request_cpus,
             "memory": spec.condor.request_memory,
             "disk": spec.condor.request_disk,
+            "walltime_seconds": spec.condor.request_walltime_seconds,
         },
         "wrapper": wrapper_record,
         "experimental": True,

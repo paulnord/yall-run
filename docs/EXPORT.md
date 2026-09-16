@@ -39,6 +39,12 @@ The input/output indexes preserve the order of repeated JSON entries and only ex
 
 The export is a derived view. Campaign JSON remains the canonical computational record; exporting does not modify campaign directories.
 
+## Wall-time requests and older databases
+
+The nullable `task.walltime_seconds` column contains each task's effective requested wall time in seconds, after campaign defaults and task overrides have been resolved. It is distinct from measured `attempt.real_seconds`. Older campaigns without a time request export null.
+
+`--sqlite` automatically adds this column to an existing pre-wall-time export database without dropping rows. New SQL dumps contain the current schema. When loading a new SQL dump into an older database manually, first add the column once with `ALTER TABLE task ADD COLUMN walltime_seconds INTEGER;`, or load the dump into a fresh database.
+
 ## Useful SQLite commands
 
 The examples below assume the database is named `yall.sqlite`. Each block is a complete shell command that can be copied and run directly.

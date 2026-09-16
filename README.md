@@ -79,6 +79,7 @@ That is enough to get started. The details live in the focused documentation bel
 
 - [Quick start](docs/QUICKSTART.md) - first campaign from install through status
 - [Yallfile reference](docs/YALLFILE.md) - tasks, data, `@each`, resources, wrappers, and workflow syntax
+- [Resources](docs/RESOURCES.md) - portable CPU, memory, disk, and wall-time requests
 - [Campaigns](docs/CAMPAIGNS.md) - create/start lifecycle, frozen campaigns, state, and attempt directories
 - [Resume](docs/RESUME.md) - recover interrupted campaigns on local, Condor, Slurm, and PBS backends
 - [Backends](docs/BACKENDS.md) - local execution, Condor/DAGMan, Slurm, PBS, resources, and wrappers

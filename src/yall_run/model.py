@@ -7,6 +7,7 @@ import shlex
 from typing import Tuple, Union
 
 from .paths import logical_absolute
+from .walltime import validate_walltime
 
 
 Command = Union[str, Tuple[str, ...]]
@@ -23,6 +24,10 @@ class ResourceSpec:
     cpus: int | None = None
     memory: str | None = None
     disk: str | None = None
+    walltime_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        validate_walltime(self.walltime_seconds)
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,10 @@ class CondorSpec:
     getenv: bool = True
     wrapper: str | None = None
     wrapper_args: Tuple[str, ...] = ()
+    request_walltime_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        validate_walltime(self.request_walltime_seconds)
 
 
 @dataclass(frozen=True)

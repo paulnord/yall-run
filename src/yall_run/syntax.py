@@ -9,6 +9,7 @@ import shlex
 from typing import Dict, List, Mapping, Sequence, Tuple
 
 from .model import CampaignSpec, CondorSpec, FileRef, ResourceSpec, TaskSpec, _validate_graph
+from .walltime import parse_walltime
 
 _FIELD_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _REF_TOKEN_RE = re.compile(r"^@(input|output)\.([A-Za-z_][A-Za-z0-9_-]*)$")
@@ -42,6 +43,7 @@ class _TaskTemplate:
     cpus: int | None = None
     memory: str | None = None
     disk: str | None = None
+    walltime_seconds: int | None = None
     cwd: str | None = None
     command: str | None = None
     shell: bool = False
@@ -178,6 +180,13 @@ def _positive_int(value: str, lineno: int, name: str) -> int:
     return result
 
 
+def _walltime(value: str, lineno: int) -> int:
+    try:
+        return parse_walltime(value)
+    except ValueError as exc:
+        raise ValueError(f"line {lineno}: %time: {exc}") from None
+
+
 def _valid_variable_name(name: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
 
@@ -246,6 +255,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
     condor_cpus = 1
     condor_memory = "2GB"
     condor_disk = "2GB"
+    condor_walltime: int | None = None
     condor_getenv = True
     condor_wrapper: str | None = None
     condor_wrapper_args: Tuple[str, ...] = ()
@@ -306,6 +316,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                     condor_memory = values[0]
                 elif directive == "disk" and len(values) == 1:
                     condor_disk = values[0]
+                elif directive == "time" and len(values) == 1:
+                    condor_walltime = _walltime(values[0], lineno)
                 elif directive == "getenv" and len(values) == 1:
                     condor_getenv = _parse_bool(values[0], lineno)
                 elif directive == "wrapper":
@@ -389,6 +401,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 current.memory = values[0]
             elif directive == "disk" and len(values) == 1:
                 current.disk = values[0]
+            elif directive == "time" and len(values) == 1:
+                current.walltime_seconds = _walltime(values[0], lineno)
             elif directive == "cwd" and len(values) == 1:
                 current.cwd = values[0]
             elif directive == "overwrite" and not values:
@@ -439,6 +453,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
         request_cpus=condor_cpus,
         request_memory=condor_memory,
         request_disk=condor_disk,
+        request_walltime_seconds=condor_walltime,
         getenv=condor_getenv,
         wrapper=condor_wrapper,
         wrapper_args=condor_wrapper_args,
@@ -691,6 +706,7 @@ def _instantiate(
             cpus=template.cpus,
             memory=template.memory,
             disk=template.disk,
+            walltime_seconds=template.walltime_seconds,
         ),
         overwrite=template.overwrite,
     )

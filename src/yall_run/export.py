@@ -47,6 +47,7 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("cpus", "INTEGER"),
         ("memory", "TEXT"),
         ("disk", "TEXT"),
+        ("walltime_seconds", "INTEGER"),
         ("PRIMARY KEY (campaign_id, task_name)", ""),
         ("FOREIGN KEY (campaign_id) REFERENCES campaign(campaign_id)", ""),
     ),
@@ -325,6 +326,7 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
             "cpus": resources.get("cpus"),
             "memory": resources.get("memory"),
             "disk": resources.get("disk"),
+            "walltime_seconds": resources.get("walltime_seconds"),
         })
         for parent in task.get("parents", []):
             rows["task_parent"].append({
@@ -514,6 +516,10 @@ def write_sqlite(path: str | Path, rows: dict[str, list[dict[str, Any]]]) -> Pat
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys = ON")
         db.executescript(schema_sql())
+        # Additive migration for databases exported before %time existed.
+        columns = {row[1] for row in db.execute("PRAGMA table_info(task)")}
+        if "walltime_seconds" not in columns:
+            db.execute("ALTER TABLE task ADD COLUMN walltime_seconds INTEGER")
         for table in TABLES:
             columns = _column_names(table)
             if not rows[table]:

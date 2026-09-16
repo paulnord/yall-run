@@ -17,6 +17,7 @@ from . import __version__
 from .model import CampaignSpec
 from .paths import logical_absolute, logical_cwd
 from .worker import run_task
+from .walltime import effective_walltime
 
 
 INPUT_HASH_MAX_BYTES = 16 * 1024 * 1024
@@ -365,6 +366,9 @@ def create_campaign(
             else workflow_cwd
         )
         record = asdict(task)
+        record["resources"]["walltime_seconds"] = effective_walltime(
+            task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+        )
         record["parents"] = list(task.parents)
         if not isinstance(task.command, str):
             record["command"] = list(task.command)
