@@ -43,6 +43,19 @@ jobs:
               raise SystemExit('unexpected command_pid remains in worker.py')
           p.write_text(s)
 
+          p = Path('src/yall_run/export.py')
+          s = p.read_text()
+          replacements = [
+              ('        ("command_pid", "INTEGER"),\n', '        ("launch_pid", "INTEGER"),\n', 1),
+              ('            "command_pid": attempt.get("command_pid"),\n', '            "launch_pid": attempt.get("launch_pid"),\n', 1),
+          ]
+          for old, new, expected in replacements:
+              count = s.count(old)
+              if count != expected:
+                  raise SystemExit(f'export.py replacement count {count} != {expected}: {old!r}')
+              s = s.replace(old, new)
+          p.write_text(s)
+
           p = Path('tests/test_payload_wrapper.py')
           s = p.read_text()
           old = '    assert attempt["command_pid"] is None\n'
@@ -108,6 +121,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git rm .github/workflows/payload-wrapper-pid-tweak.yml
-          git add src/yall_run/worker.py tests/test_payload_wrapper.py tests/test_campaign.py docs/PROVENANCE.md docs/WRAPPERS.md
+          git add src/yall_run/worker.py src/yall_run/export.py tests/test_payload_wrapper.py tests/test_campaign.py docs/PROVENANCE.md docs/WRAPPERS.md
           git commit -m 'Name wrapper process PID as launch_pid'
           git push origin HEAD:feat/payload-wrapper
