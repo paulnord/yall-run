@@ -221,8 +221,9 @@ def test_backend_failure_exit_code_and_retries(tmp_path, backend):
                       "%retry 1\n    echo never")
     campaign = RENDERERS[backend](load_spec(path), tmp_path / "campaigns")
     result = subprocess.run(["bash", str(node_script(campaign, backend))], capture_output=True, text=True)
-    assert result.returncode == 37
-    # Condor retries are owned by DAGMan, PBS/Slurm retries by their scripts.
+    assert result.returncode == (100 if backend == "condor" else 37)
+    # Condor classifies a wrapper failure before worker entry as startup failure;
+    # PBS/Slurm retain their existing in-script %retry behavior.
     assert len(capture.read_text().splitlines()) == (1 if backend == "condor" else 2)
     assert not (campaign / "one_attempt_001").exists()
 
