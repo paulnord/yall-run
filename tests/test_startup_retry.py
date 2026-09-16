@@ -24,16 +24,17 @@ def test_condor_startup_retry_default_is_separate_from_payload_retry(tmp_path):
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
     submit = (campaign_dir / "condor" / "yall_0000_one.sub").read_text()
     dag = (campaign_dir / "condor" / "campaign.dag").read_text()
-    payload = (campaign_dir / "condor" / "yall_0000_one.payload.sh").read_text()
     launcher = (campaign_dir / "condor" / "yall_0000_one.sh").read_text()
+    worker = (campaign_dir / "condor" / "yall_worker.py").read_text()
     manifest = json.loads((campaign_dir / "campaign.json").read_text())
 
     assert "max_retries = 2" in submit
     assert "retry_until = ExitCode =!= 100" in submit
     assert 'requirements = (Machine =!= split(LastRemoteHost, "@")[1])' in submit
     assert "RETRY yall_0000_one 3 UNLESS-EXIT 100" in dag
-    assert "startup/yall_0000_one.started" in payload
-    assert "yall_worker.py" in payload
+    assert "startup/yall_0000_one.started" in launcher
+    assert "export YALL_STARTUP_MARKER" in launcher
+    assert "YALL_STARTUP_MARKER" in worker
     assert "startup failed before payload marker" in launcher
     assert "payload failed after startup" in launcher
     assert "exit 100" in launcher
