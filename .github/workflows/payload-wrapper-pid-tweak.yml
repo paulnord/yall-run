@@ -65,8 +65,8 @@ jobs:
           p = Path('tests/test_campaign.py')
           s = p.read_text()
           count = s.count('attempt["command_pid"]')
-          if count != 3:
-              raise SystemExit(f'expected three campaign command_pid assertions, found {count}')
+          if count != 4:
+              raise SystemExit(f'expected four campaign command_pid assertions, found {count}')
           s = s.replace('attempt["command_pid"]', 'attempt["launch_pid"]')
           p.write_text(s)
 
@@ -94,6 +94,10 @@ jobs:
           s = s.replace(old, new)
           p.write_text(s)
           PY
+          if grep -R -n --exclude-dir=.git 'command_pid' src tests docs; then
+            echo 'command_pid references remain after pre-beta rename' >&2
+            exit 1
+          fi
       - name: Install and test
         run: |
           python -m pip install -e . pytest
