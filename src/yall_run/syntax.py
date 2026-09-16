@@ -8,7 +8,15 @@ import re
 import shlex
 from typing import Dict, List, Mapping, Sequence, Tuple
 
-from .model import CampaignSpec, CondorSpec, FileRef, ResourceSpec, TaskSpec, _validate_graph
+from .model import (
+    CampaignSpec,
+    CondorSpec,
+    DEFAULT_STARTUP_RETRIES,
+    FileRef,
+    ResourceSpec,
+    TaskSpec,
+    _validate_graph,
+)
 from .walltime import parse_walltime
 
 _FIELD_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -40,6 +48,7 @@ class _TaskTemplate:
     outputs: List[_RefTemplate] = field(default_factory=list)
     each: _EachTemplate | None = None
     retries: int = 0
+    startup_retries: int = DEFAULT_STARTUP_RETRIES
     cpus: int | None = None
     memory: str | None = None
     disk: str | None = None
@@ -395,6 +404,17 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                     ) from None
                 if current.retries < 0:
                     raise ValueError(f"line {lineno}: %retry may not be negative")
+            elif directive == "startup-retry" and len(values) == 1:
+                try:
+                    current.startup_retries = int(values[0])
+                except ValueError:
+                    raise ValueError(
+                        f"line {lineno}: %startup-retry requires an integer"
+                    ) from None
+                if current.startup_retries < 0:
+                    raise ValueError(
+                        f"line {lineno}: %startup-retry may not be negative"
+                    )
             elif directive == "cpus" and len(values) == 1:
                 current.cpus = _positive_int(values[0], lineno, directive)
             elif directive == "memory" and len(values) == 1:
@@ -700,6 +720,7 @@ def _instantiate(
         cwd=cwd,
         parents=tuple(dict.fromkeys(parents)),
         retries=template.retries,
+        startup_retries=template.startup_retries,
         inputs=tuple(inputs),
         outputs=tuple(outputs),
         resources=ResourceSpec(
