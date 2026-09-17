@@ -46,15 +46,15 @@ the usual input validation and glob rules.
 prepare:
     echo preparing
 
-convert-ped-{ped}: prepare
+convert-{run}: prepare
+    @each run in pairs.ped pairs.run
+    echo converting {run}
+
+pedestal-{ped}: convert-{ped}
     @each ped in pairs.ped
-    echo converting pedestal {ped}
+    echo fitting pedestal {ped}
 
-convert-muon-{run}: prepare
-    @each run in pairs.run
-    echo converting muon {run}
-
-calibrate-{ped}-{run}: convert-ped-{ped} convert-muon-{run}
+calibrate-{ped}-{run}: pedestal-{ped} convert-{run}
     @each ped run in pairs
     echo calibrating {run} with pedestal {ped}
 
@@ -77,9 +77,36 @@ the task-name placeholders just as for an explicit `@each`.
 
 `pairs.ped` selects a column and removes repeated values, preserving the order
 of their first occurrence. In this example it gives `296 303`, so there is only
-one `convert-ped-296` task. `pairs.run` gives `298 300 304`.
+one `pedestal-296` task. `pairs.run` gives `298 300 304`.
 Downstream patterned tasks inherit the bindings as usual; they do not need
 another `@each` or another copy of the table.
+
+## Combine sources in one task family
+
+```text
+convert-{run}: prepare
+    @each run in pairs.ped pairs.run
+    echo converting {run}
+```
+
+Multiple sources after `in` form an **ordered union**. Sources are visited
+left to right; each contributes its rows in declaration order. Repeated rows
+are kept only at their first occurrence, including repeats across columns or
+lists. The table above therefore converts `296 303 298 300 304`, once each.
+One task still runs per value, not two conversions inside a pair-level job.
+
+Lists, table columns and complete tables can be combined when every source
+has the same width as the binding names. For example, `@each p m in pairs extra`
+unions two two-column tables by complete row. It does not zip columns or form
+a Cartesian product: use `@each ped run in pairs` to preserve the pairings.
+Duplicate values/rows **inside a declaration** remain errors; only overlap
+between valid sources (and column projections) is deduplicated.
+
+Pedestal fitting uses `pairs.ped` once per distinct pedestal. Pair-specific
+calibration then waits for `pedestal-{ped}` and `convert-{run}`, not for every
+conversion in the campaign. Reusing a pedestal does not create duplicate
+conversion or pedestal-output owners. Existing output-ownership checks still
+reject other tasks that would write the same file.
 
 ## Scope, substitution, and errors
 

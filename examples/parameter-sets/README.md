@@ -3,7 +3,9 @@
 This local, message-only example needs no scientific software. All values live
 at the top of the Yallfile. The independent `checks` list creates the initial
 checks; the `pairs` table supplies both the conversion lists and correlated
-calibration pairs. Pedestal `296` serves two muon runs but is converted once.
+calibration pairs. One `convert-{run}` family unions both columns. Pedestal
+`296` serves two muon runs but is converted and fitted once. Each calibration
+waits for its own pedestal fit and muon conversion, with no global barrier.
 
 ```sh
 cd examples/parameter-sets

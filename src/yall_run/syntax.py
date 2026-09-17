@@ -29,7 +29,7 @@ class _EachTemplate:
     names: List[str]
     values: List[str]
     pattern: bool
-    source: str | None = None
+    sources: Tuple[str, ...] = ()
     lineno: int = 0
 
 
@@ -290,33 +290,36 @@ def _resolve_parameter_sets(
 
     for task in tasks:
         each = task.each
-        if each is None or each.source is None:
+        if each is None or not each.sources:
             continue
         context = f"line {each.lineno}: @each"
-        name, separator, column = each.source.partition(".")
-        parameter = parameters.get(name)
-        if parameter is None:
-            raise ValueError(f"{context}: unknown parameter set {name!r}")
-        if separator:
-            if not parameter.columns:
-                raise ValueError(f"{context}: @list {name!r} has no columns")
-            if column not in parameter.columns:
-                raise ValueError(f"{context}: unknown column {column!r} in table {name!r}")
-            index = parameter.columns.index(column)
-            # A column is a reusable conversion list. The same pedestal may
-            # appear in multiple pairs but should produce only one conversion.
-            rows = list(dict.fromkeys((row[index],) for row in parameter.rows))
-        else:
-            rows = parameter.rows
-        width = len(rows[0])
-        if len(each.names) != width:
-            raise ValueError(
-                f"{context}: {each.source!r} provides {width} field(s), "
-                f"but {len(each.names)} binding name(s) were supplied"
-            )
-        # Keep all existing @each duplicate/name/graph validation and inherited
-        # patterned-parent expansion. No scheduler or worker feature is needed.
-        each.values = [value for row in rows for value in row]
+        combined: Dict[Tuple[str, ...], None] = {}
+        for source in each.sources:
+            name, separator, column = source.partition(".")
+            parameter = parameters.get(name)
+            if parameter is None:
+                raise ValueError(f"{context}: unknown parameter set {name!r}")
+            if separator:
+                if not parameter.columns:
+                    raise ValueError(f"{context}: @list {name!r} has no columns")
+                if column not in parameter.columns:
+                    raise ValueError(f"{context}: unknown column {column!r} in table {name!r}")
+                index = parameter.columns.index(column)
+                rows = [(row[index],) for row in parameter.rows]
+            else:
+                rows = parameter.rows
+            width = len(rows[0])
+            if len(each.names) != width:
+                raise ValueError(
+                    f"{context}: {source!r} provides {width} field(s), "
+                    f"but {len(each.names)} binding name(s) were supplied"
+                )
+            # Ordered union of complete rows, not a product or a zip. This
+            # also deduplicates column projections, including across sources.
+            combined.update(dict.fromkeys(rows))
+        # Lower to the existing explicit binding/graph validation. No worker
+        # change or runtime collection lookup is needed.
+        each.values = [value for row in combined for value in row]
 
 
 def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTemplate]]:
@@ -489,15 +492,23 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
                     continue
                 if "in" in parts[2:]:
                     split = len(parts) - 2 if parts[-2] == "in" else parts.index("in", 2)
-                    names, source = parts[1:split], parts[split + 1:]
-                    if len(source) != 1:
-                        raise ValueError(f"line {lineno}: @each ... in needs exactly one source")
-                    source_parts = source[0].split(".")
+                    # Preserve identifiers named "in": the last known source
+                    # fixes the binding width and therefore the separator.
+                    last_name, dot, _ = parts[-1].partition(".")
+                    last = parameters.get(last_name)
+                    if last is not None:
+                        width = 1 if dot or not last.columns else len(last.columns)
+                        if width + 1 < len(parts) and parts[width + 1] == "in":
+                            split = width + 1
+                    names, sources = parts[1:split], parts[split + 1:]
+                    if not sources:
+                        raise ValueError(f"line {lineno}: @each ... in needs at least one source")
+                    source_parts = [source.split(".") for source in sources]
                     if (any(not _valid_variable_name(n) for n in names)
-                            or len(source_parts) > 2
-                            or any(not _valid_variable_name(n) for n in source_parts)):
+                            or any(len(items) > 2 or any(not _valid_variable_name(n) for n in items)
+                                   for items in source_parts)):
                         raise ValueError(f"line {lineno}: invalid named @each binding or source")
-                    current.each = _EachTemplate(names, [], False, source[0], lineno)
+                    current.each = _EachTemplate(names, [], False, tuple(sources), lineno)
                     continue
                 values = parts[2:]
                 current.each = _EachTemplate(

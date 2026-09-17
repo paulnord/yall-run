@@ -128,8 +128,8 @@ cal-{ped}-{run}:
     ('@table pairs ped run:\n    1 2', 'x-{r}:\n    @each r in pairs.foo\n    echo {r}', 'unknown column'),
     ('@table pairs ped run:\n    1 2', 'x-{r}:\n    @each r in pairs\n    echo {r}', 'provides 2 field'),
     ('@list runs 1', 'x-{p}-{r}:\n    @each p r in runs\n    echo {r}', 'provides 1 field'),
-    ('@list runs 1', 'x-{r}:\n    @each r in\n    echo {r}', 'exactly one source'),
-    ('@list runs 1', 'x-{r}:\n    @each r in runs other\n    echo {r}', 'exactly one source'),
+    ('@list runs 1', 'x-{r}:\n    @each r in\n    echo {r}', 'at least one source'),
+    ('@list runs 1', 'x-{r}:\n    @each r in runs other\n    echo {r}', 'unknown parameter set'),
     ('@list runs 1', 'x-{r}:\n    @each r in runs.bad.extra\n    echo {r}', 'invalid named'),
     ('@list runs 1', 'x-{r}:\n    @each p in runs\n    echo {r}', 'must match'),
 ])
@@ -262,7 +262,7 @@ def test_named_parameters_example_runs(tmp_path):
     source = Path(__file__).parents[1] / 'examples' / 'parameter-sets' / 'Yallfile'
     spec = load_spec(source)
     names = [task.name for task in spec.tasks]
-    assert names.count('convert-ped-296') == 1
+    assert names.count('convert-296') == 1
     assert 'calibrate-296-298' in names and 'calibrate-296-300' in names
     assert 'calibrate-303-298' not in names
     campaign = create_campaign(spec, tmp_path / 'campaigns')
