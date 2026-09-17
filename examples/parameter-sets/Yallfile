@@ -1,0 +1,34 @@
+campaign parameter-sets
+backend local
+
+@list checks inputs calibration
+
+@table pairs ped run:
+    296 298
+    296 300
+    303 304
+
+check-{check}:
+    @each check in checks
+    echo checking {check}
+
+prepare: check-{check}
+    echo preparing
+
+convert-ped-{ped}: prepare
+    @each ped in pairs.ped
+    echo converting pedestal {ped}
+
+convert-muon-{run}: prepare
+    @each run in pairs.run
+    echo converting muon {run}
+
+calibrate-{ped}-{run}: convert-ped-{ped} convert-muon-{run}
+    @each ped run in pairs
+    echo calibrating {run} with pedestal {ped}
+
+analyze-{ped}-{run}: calibrate-{ped}-{run}
+    echo analyzing {run} with pedestal {ped}
+
+finish: analyze-{ped}-{run}
+    echo all pairs finished

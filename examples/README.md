@@ -5,6 +5,7 @@ These examples are small enough to inspect by hand but are chosen to exercise di
 | Example | Calculation | Workflow shape | Numerical character |
 | --- | --- | --- | --- |
 | [`hello`](hello/) | simple messages | two independent tasks followed by a join | minimal syntax example |
+| [`parameter-sets`](parameter-sets/) | simple calibration messages | shared conversions followed by correlated pairs | reusable lists, tables, and column projections |
 | [`eic-shell`](eic-shell/) | ROOT/Python environment checks | two checks followed by a join on Condor | piped-command adapter for the EIC container launcher |
 | [`pi`](pi/) | Leibniz series for $\pi$ | broad map followed by one fan-in | extremely slow convergence |
 | [`sqrt2`](sqrt2/) | continued fraction for $\sqrt{2}$ | deep serial dependency chain | rapid convergence, exact rational convergents |
