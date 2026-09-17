@@ -330,7 +330,7 @@ def _stage(cdir: Path, directory: Path, plan: dict[str, Any]) -> dict[str, Any]:
             for key, target in {"output": logs / (file.stem + ".out"),
                                 "error": logs / (file.stem + ".err"),
                                 "log": directory / "events.log"}.items():
-                text = re.sub(rf"(?im)^{key}\s*=.*$", f'{key} = "{target}"', text)
+                text = re.sub(rf"(?im)^{key}\s*=.*$", f"{key} = {target}", text)
             (directory / file.name).write_text(text)
         return {"rescue_source": str(rescue), "rescue_number": number,
                 "rescue_sha256": hashlib.sha256(rescue.read_bytes()).hexdigest()}
