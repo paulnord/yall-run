@@ -4,7 +4,7 @@ This guide gets a small yall-run workflow from a `Yallfile` to a completed campa
 
 ## Install
 
-yall-run requires Python 3.9 or newer.
+yall-run requires Python 3.8 or newer.
 
 From a checkout of the repository:
 
