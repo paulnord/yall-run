@@ -129,12 +129,23 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                 job_id = f"{cluster}.{int(ad.get('ProcId', 0))}"
                 state = _CONDOR_STATES.get(int(ad["JobStatus"]), "unknown")
                 task = names.get(ad.get("DAGNodeName"))
+                diagnostic: dict[str, Any] = {}
+                hold_reason = ad.get("HoldReason") or ad.get("LastHoldReason")
+                if hold_reason:
+                    diagnostic["hold_reason"] = str(hold_reason)
+                if ad.get("HoldReasonCode") is not None:
+                    diagnostic["hold_reason_code"] = ad.get("HoldReasonCode")
+                subcode = ad.get("HoldReasonSubCode", ad.get("HoldReasonSubcode"))
+                if subcode is not None:
+                    diagnostic["hold_reason_subcode"] = subcode
+                if ad.get("RemoveReason"):
+                    diagnostic["remove_reason"] = str(ad["RemoveReason"])
                 if state not in _TERMINAL:
-                    active[job_id] = {"state": state, "task": task}
+                    active[job_id] = {"state": state, "task": task, **diagnostic}
                     if task is None:
                         snapshot.update(cluster_id=cluster, dagman=state)
                 if task is not None:
-                    item = {"state": state, "job_id": job_id}
+                    item = {"state": state, "job_id": job_id, **diagnostic}
                     if task not in nodes or state not in _TERMINAL:
                         nodes[task] = item
         elif backend in {"slurm", "pbs"}:
@@ -185,7 +196,9 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                 if task not in nodes or state not in _TERMINAL:
                     nodes[task] = item
                 if state not in _TERMINAL:
-                    active[job_id] = {"state": state, "task": task}
+                    active[job_id] = {
+                        "state": state, "task": task, "scheduler_state": raw_state
+                    }
         else:
             raise ValueError(f"unsupported queued backend: {backend}")
         for item in active.values():
@@ -197,6 +210,85 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
         snapshot["error"] = str(exc)
         snapshot.update(nodes={}, counts={}, active_jobs={}, dagman=None)
     return snapshot
+
+
+
+def condor_history_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
+    """Return normalized historical Condor ads for this campaign.
+
+    This is diagnostic evidence only. It never changes reconciled task state and
+    is intentionally separate from the live condor_q query used by recovery.
+    """
+    cdir, manifest, _ = _load(campaign_dir)
+    result: dict[str, Any] = {"query_ok": False, "jobs": []}
+    try:
+        if manifest.get("backend") != "condor":
+            raise ValueError("Condor history is only available for Condor campaigns")
+        records = _records(cdir, "condor")
+        clusters = {
+            int(record["cluster_id"])
+            for _, record in records
+            if record.get("cluster_id") is not None
+        }
+        if not clusters:
+            raise RuntimeError("no recorded DAGMan cluster ID")
+        render = _read(cdir / "condor" / "render.json")
+        names = {node: task for task, node in render["node_names"].items()}
+        clauses = [f"(ClusterId == {i} || DAGManJobId == {i})" for i in sorted(clusters)]
+        raw = _checked(["condor_history", "-json", "-constraint", " || ".join(clauses)])
+        ads = [] if not raw.strip() else json.loads(raw)
+        if not isinstance(ads, list):
+            raise ValueError("condor_history did not return a JSON array")
+
+        jobs: list[dict[str, Any]] = []
+        for ad in ads:
+            if ad.get("ClusterId") is None or ad.get("JobStatus") is None:
+                continue
+            cluster = int(ad["ClusterId"])
+            proc = int(ad.get("ProcId", 0))
+            item: dict[str, Any] = {
+                "job_id": f"{cluster}.{proc}",
+                "state": ("removed" if int(ad["JobStatus"]) == 3 else _CONDOR_STATES.get(int(ad["JobStatus"]), "unknown")),
+                "task": names.get(ad.get("DAGNodeName")),
+                "dagman_job_id": ad.get("DAGManJobId"),
+            }
+            hold_reason = ad.get("HoldReason") or ad.get("LastHoldReason")
+            if hold_reason:
+                item["hold_reason"] = str(hold_reason)
+            hold_code = ad.get("HoldReasonCode", ad.get("LastHoldReasonCode"))
+            if hold_code is not None:
+                item["hold_reason_code"] = hold_code
+            subcode = ad.get(
+                "HoldReasonSubCode",
+                ad.get("HoldReasonSubcode", ad.get("LastHoldReasonSubCode")),
+            )
+            if subcode is not None:
+                item["hold_reason_subcode"] = subcode
+            if ad.get("RemoveReason"):
+                item["remove_reason"] = str(ad["RemoveReason"])
+            for source, target in (
+                ("ExitCode", "exit_code"),
+                ("ExitBySignal", "exit_by_signal"),
+                ("ExitSignal", "exit_signal"),
+                ("RemoteHost", "remote_host"),
+                ("LastRemoteHost", "last_remote_host"),
+                ("EnteredCurrentStatus", "entered_current_status"),
+                ("CompletionDate", "completion_date"),
+            ):
+                if ad.get(source) is not None:
+                    item[target] = ad.get(source)
+            jobs.append(item)
+
+        jobs.sort(
+            key=lambda item: (
+                int(item.get("entered_current_status") or item.get("completion_date") or 0),
+                item["job_id"],
+            )
+        )
+        result.update(query_ok=True, jobs=jobs)
+    except (RuntimeError, ValueError, KeyError, TypeError, OSError, json.JSONDecodeError) as exc:
+        result["error"] = str(exc)
+    return result
 
 
 def _effective(cdir: Path, name: str, state: dict[str, Any], snapshot: dict[str, Any]) -> str:

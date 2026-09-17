@@ -82,6 +82,7 @@ That is enough to get started. The details live in the focused documentation bel
 - [Resources](docs/RESOURCES.md) - portable CPU, memory, disk, and wall-time requests
 - [Retries](docs/RETRIES.md) - payload retries versus transient startup retries
 - [Campaigns](docs/CAMPAIGNS.md) - create/start lifecycle, frozen campaigns, state, and attempt directories
+- [Status](docs/STATUS.md) - compact monitoring plus `-v`, `-vv`, and `-vvv` failure diagnostics
 - [Resume](docs/RESUME.md) - recover interrupted campaigns on local, Condor, Slurm, and PBS backends
 - [Campaign amendments](docs/AMENDMENTS.md) - safely overlay command fixes for unfinished tasks while preserving provenance
 - [Execution wrappers](docs/WRAPPERS.md) - host-native worker, payload environments, and launcher contract

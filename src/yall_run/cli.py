@@ -21,7 +21,13 @@ from .export import export_provenance
 from .model import load_spec
 from .pbs_backend import render_pbs, submit_pbs
 from .slurm_backend import render_slurm, submit_slurm
-from .recovery import QUEUED_BACKENDS, reconcile_status, resume_campaign
+from .recovery import (
+    QUEUED_BACKENDS,
+    condor_history_snapshot,
+    reconcile_status,
+    resume_campaign,
+)
+from .status_view import render_status
 from .worker import run_task
 from .walltime import effective_walltime, format_walltime
 
@@ -134,6 +140,10 @@ def _parser() -> argparse.ArgumentParser:
     _friendly_sections(status)
     status.add_argument("campaign_dir")
     status.add_argument("--json", action="store_true")
+    status.add_argument(
+        "-v", "--verbose", action="count", default=0,
+        help="add failure diagnostics; repeat up to -vvv for deeper provenance",
+    )
 
     retry = sub.add_parser("retry", help="run one more attempt of a failed local task")
     _friendly_sections(retry)
@@ -364,40 +374,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "status":
+            if args.verbose > 3:
+                raise ValueError("status verbosity supports at most -vvv")
+            if args.json and args.verbose:
+                raise ValueError("status verbosity is text-only; use --json without -v")
             data = campaign_status(args.campaign_dir)
             backend = data["backend"]
             if backend in QUEUED_BACKENDS:
                 data = reconcile_status(args.campaign_dir, data)
+            if args.verbose >= 3 and backend == "condor":
+                data["scheduler_history"] = condor_history_snapshot(args.campaign_dir)
             if args.json:
                 print(json.dumps(data, indent=2, sort_keys=True))
             else:
-                print(f"Campaign {data['id']} ({backend})")
-                scheduler = data.get("scheduler") or {}
-                active_nodes = scheduler.get("nodes", {})
-                for task in data["tasks"]:
-                    suffix = ""
-                    active = active_nodes.get(task["name"])
-                    if active:
-                        suffix = f" {backend}={active['state']} job={active['job_id']}"
-                    print(
-                        f"  {task['name']:<20} {task['state']:<10} "
-                        f"attempts={task['attempts']}{suffix}"
-                    )
-                if scheduler.get("query_ok") is False:
-                    print(f"  scheduler: unknown ({scheduler.get('error', 'query failed')})")
-                elif data.get("scheduler") is not None:
-                    counts = scheduler.get("counts", {})
-                    node_summary = ", ".join(
-                        f"{name}={count}" for name, count in sorted(counts.items())
-                    ) or "no active nodes"
-                    if backend == "condor":
-                        dagman = scheduler.get("dagman") or "not-in-queue"
-                        print(
-                            f"  scheduler: dagman={dagman} "
-                            f"cluster={scheduler['cluster_id']}; nodes: {node_summary}"
-                        )
-                    else:
-                        print(f"  scheduler: {backend}; nodes: {node_summary}")
+                print(render_status(args.campaign_dir, data, verbosity=args.verbose))
             return 0
 
         if args.command == "retry":
