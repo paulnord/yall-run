@@ -151,8 +151,18 @@ def _next_attempt_number(
     return number
 
 
+def _payload_command(command: str | list[str], wrapper: dict[str, Any] | None, startup_marker: Path | None = None) -> list[str]:
+    payload = ["/bin/sh", "-c", command] if isinstance(command, str) else list(command)
+    if startup_marker is not None and wrapper is not None:
+        entry = 'marker=$1; shift; : > "$marker" || exit 125; exec "$@"'
+        payload = ["/bin/sh", "-c", entry, "yall-payload-start", str(startup_marker), *payload]
+    if wrapper is not None:
+        return [str(wrapper["path"]), *wrapper.get("args", []), *payload]
+    return payload
+
+
 def _run_command(
-    command: str | list[str],
+    command: list[str],
     *,
     cwd: Path | None,
     stdout: Any,
@@ -162,14 +172,14 @@ def _run_command(
     started = time.monotonic()
     proc = subprocess.Popen(
         command,
-        shell=isinstance(command, str),
+        shell=False,
         cwd=str(cwd) if cwd else None,
         stdout=stdout,
         stderr=stderr,
         text=True,
         env=env,
     )
-    command_pid = int(proc.pid)
+    launch_pid = int(proc.pid)
 
     user_seconds: float | None = None
     sys_seconds: float | None = None
@@ -191,7 +201,7 @@ def _run_command(
         "user_seconds": user_seconds,
         "sys_seconds": sys_seconds,
     }
-    return int(proc.returncode), timing, command_pid
+    return int(proc.returncode), timing, launch_pid
 
 
 def run_task(campaign_dir: str | Path, task_name: str) -> int:
@@ -205,6 +215,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
     task = _task_definition(campaign_dir, manifest, task_name)
+    startup_marker = _startup_marker(campaign_dir, task_name)
 
     number = _next_attempt_number(campaign_dir, manifest, task_name)
     attempt_dir = campaign_dir / f"{task_name}_attempt_{number:03d}"
@@ -214,6 +225,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     provenance_path = attempt_dir / "provenance.json"
 
     command = task["command"]
+    wrapper = manifest.get("execution", {}).get("wrapper")
+    launch_command = _payload_command(command, wrapper, startup_marker)
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     worker_pid = os.getpid()
@@ -243,10 +256,14 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "overwrite": task_overwrite,
         },
         "execution": {
+            "context": "host",
+            "wrapper": wrapper,
+            "launch_command": launch_command,
             "started_at": started,
             "hostname": platform.node(),
             "platform": platform.platform(),
             "python": sys.version,
+            "python_executable": sys.executable,
             "pid": worker_pid,
             "worker_pid": worker_pid,
             "campaign_overwrite": campaign_overwrite,
@@ -260,6 +277,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         stderr_path.write_text(
             "yall-worker: declared input missing: " + ", ".join(missing_inputs) + "\n"
         )
+        _mark_nonstartup_failure(startup_marker, stderr_path)
         finished = _utc_now()
         outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
         failure = {"kind": "missing_inputs", "paths": missing_inputs}
@@ -272,7 +290,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "returncode": 2,
             "command_returncode": None,
             "worker_pid": worker_pid,
-            "command_pid": None,
+            "launch_pid": None,
             "command": command,
             "cwd": task.get("cwd"),
             "inputs": inputs,
@@ -298,6 +316,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             + ", ".join(existing_outputs)
             + "\n"
         )
+        _mark_nonstartup_failure(startup_marker, stderr_path)
         finished = _utc_now()
         failure = {"kind": "outputs_exist", "paths": existing_outputs}
         _write_json(attempt_dir / "attempt.json", {
@@ -309,7 +328,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "returncode": 2,
             "command_returncode": None,
             "worker_pid": worker_pid,
-            "command_pid": None,
+            "launch_pid": None,
             "command": command,
             "cwd": task.get("cwd"),
             "inputs": inputs,
@@ -352,24 +371,42 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "YALL_TASK": task_name,
         "YALL_ATTEMPT": str(number),
         "YALL_PROVENANCE": str(provenance_path),
+        "YALL_TASK_CWD": str(task.get("cwd") or Path.cwd()),
     })
 
     cwd = Path(task["cwd"]) if task.get("cwd") else None
+    launch_error: OSError | None = None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
-        command_returncode, timing, command_pid = _run_command(
-            command,
-            cwd=cwd,
-            stdout=out,
-            stderr=err,
-            env=env,
-        )
+        if startup_marker is not None and wrapper is None:
+            try:
+                startup_marker.touch()
+            except OSError as exc:
+                err.write(f"yall-worker: could not write startup marker {startup_marker}: {exc}\n")
+        try:
+            command_returncode, timing, launch_pid = _run_command(
+                launch_command,
+                cwd=cwd,
+                stdout=out,
+                stderr=err,
+                env=env,
+            )
+        except OSError as exc:
+            # exec/cwd failures must produce a terminal attempt, not stale
+            # "running" state with the only error in a scheduler-level log.
+            launch_error = exc
+            command_returncode = None
+            launch_pid = None
+            timing = {"real_seconds": None, "user_seconds": None, "sys_seconds": None}
+            err.write(f"yall-worker: launch failed: {exc}\n")
 
     finished = _utc_now()
     outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
     missing_outputs = _missing_paths(outputs)
-    returncode = command_returncode
+    returncode = 2 if launch_error is not None else command_returncode
     failure: dict[str, Any] | None = None
-    if command_returncode == 0 and missing_outputs:
+    if launch_error is not None:
+        failure = {"kind": "launch_failed", "errno": launch_error.errno, "message": str(launch_error)}
+    elif command_returncode == 0 and missing_outputs:
         returncode = 1
         failure = {"kind": "missing_outputs", "paths": missing_outputs}
         with stderr_path.open("a") as err:
@@ -391,7 +428,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "returncode": returncode,
         "command_returncode": command_returncode,
         "worker_pid": worker_pid,
-        "command_pid": command_pid,
+        "launch_pid": launch_pid,
+        "launch_command": launch_command,
         "command": command,
         "cwd": task.get("cwd"),
         "inputs": inputs,
@@ -413,35 +451,28 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     return returncode
 
 
-def _startup_marker(campaign_dir: str | Path, task_name: str) -> Path | None:
-    campaign = Path(campaign_dir).expanduser()
-    if not campaign.is_absolute():
-        campaign = Path.cwd() / campaign
-    marker_dir = campaign.absolute() / "condor" / "startup"
+def _startup_marker(campaign_dir: Path, task_name: str) -> Path | None:
+    marker_dir = campaign_dir / "condor" / "startup"
     if not marker_dir.is_dir():
         return None
     marker_id = hashlib.sha256(task_name.encode("utf-8")).hexdigest()
     return marker_dir / f"{marker_id}.started"
 
 
-def _mark_payload_started(campaign_dir: str | Path, task_name: str) -> bool:
-    marker = _startup_marker(campaign_dir, task_name)
+def _mark_nonstartup_failure(marker: Path | None, stderr_path: Path) -> None:
     if marker is None:
-        return True
+        return
     try:
         marker.touch()
     except OSError as exc:
-        print(f"yall-worker: could not write startup marker {marker}: {exc}", file=sys.stderr)
-        return False
-    return True
+        with stderr_path.open("a") as err:
+            err.write(f"yall-worker: could not write startup marker {marker}: {exc}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     if len(values) != 2:
         print("usage: yall_worker.py CAMPAIGN_DIR TASK", file=sys.stderr)
-        return 2
-    if not _mark_payload_started(values[0], values[1]):
         return 2
     try:
         return run_task(values[0], values[1])

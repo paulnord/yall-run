@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import re
 import shlex
-import shutil
-from typing import Any, Sequence
+from typing import Any
 
-from .model import CampaignSpec
 from .paths import logical_absolute
 
 
@@ -29,40 +26,6 @@ def slug(name: str) -> str:
     return value or "task"
 
 
-def archive_wrapper(
-    spec: CampaignSpec,
-    campaign_dir: Path,
-    backend: str,
-) -> dict[str, Any] | None:
-    wrapper = spec.condor.wrapper
-    if not wrapper:
-        return None
-    source = logical_absolute(wrapper, spec.source.parent)
-    if not source.is_file():
-        raise ValueError(f"{backend} wrapper does not exist: {source}")
-    environment_dir = campaign_dir / "environment"
-    environment_dir.mkdir(exist_ok=True)
-    suffix = "".join(source.suffixes)
-    archived = environment_dir / f"{backend}-wrapper{suffix}"
-    shutil.copy2(source, archived)
-    archived.chmod(archived.stat().st_mode | 0o100)
-    digest = hashlib.sha256(archived.read_bytes()).hexdigest()
-    record = {
-        "source": str(source),
-        "path": str(archived),
-        "sha256": digest,
-        "size_bytes": archived.stat().st_size,
-        "args": list(spec.condor.wrapper_args),
-    }
-    # Include the frozen wrapper in the campaign itself as well as render.json.
-    # begin_campaign also carries execution policy into start.json.
-    manifest_path = campaign_dir / "campaign.json"
-    manifest = read_json(manifest_path)
-    manifest.setdefault("execution", {}).setdefault(backend, {})["wrapper"] = record
-    write_json(manifest_path, manifest)
-    return record
-
-
 def bundle_worker(campaign_dir: Path, backend: str) -> Path:
     backend_dir = campaign_dir / backend
     worker_source = Path(__file__).with_name("worker.py").read_text()
@@ -72,20 +35,10 @@ def bundle_worker(campaign_dir: Path, backend: str) -> Path:
     return worker
 
 
-def worker_command(
-    worker: Path,
-    campaign_dir: Path,
-    task_name: str,
-    archived_wrapper: Path | None,
-    wrapper_args: Sequence[str] = (),
-) -> str:
-    argv = ["/usr/bin/env", "python3", str(worker), str(campaign_dir), task_name]
-    if archived_wrapper is not None:
-        argv = [str(archived_wrapper), *wrapper_args, *argv]
-    elif wrapper_args:
-        raise ValueError("wrapper arguments require a wrapper executable")
-    # Each argument, including empty strings and '--', keeps its boundary.
-    return shlex.join(argv)
+def worker_command(worker: Path, campaign_dir: Path, task_name: str) -> str:
+    # Only the host-native Python worker belongs in a scheduler launch script.
+    # The frozen campaign tells that worker how to wrap the scientific payload.
+    return shlex.join(["/usr/bin/env", "python3", str(worker), str(campaign_dir), task_name])
 
 
 def retry_shell(command: str, retries: int) -> str:

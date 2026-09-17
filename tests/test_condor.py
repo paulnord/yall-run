@@ -130,11 +130,12 @@ def test_condor_wrapper_is_archived(tmp_path):
     )
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
-    archived = campaign_dir / "environment" / "condor-wrapper.sh"
+    archived = campaign_dir / "environment" / "payload-wrapper.sh"
     assert archived.read_text() == wrapper.read_text()
     node_script = (campaign_dir / "condor" / "yall_0000_hello.sh").read_text()
-    assert str(archived) in node_script
-    render = json.loads((campaign_dir / "condor" / "render.json").read_text())
-    assert render["wrapper"]["source"] == str(wrapper)
-    assert render["wrapper"]["path"] == str(archived)
-    assert len(render["wrapper"]["sha256"]) == 64
+    assert str(archived) not in node_script
+    assert "/usr/bin/env python3" in node_script
+    policy = json.loads((campaign_dir / "campaign.json").read_text())["execution"]
+    assert policy["wrapper"]["source"] == str(wrapper)
+    assert policy["wrapper"]["path"] == str(archived)
+    assert len(policy["wrapper"]["sha256"]) == 64

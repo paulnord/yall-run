@@ -8,15 +8,7 @@ import re
 import shlex
 from typing import Dict, List, Mapping, Sequence, Tuple
 
-from .model import (
-    CampaignSpec,
-    CondorSpec,
-    DEFAULT_STARTUP_RETRIES,
-    FileRef,
-    ResourceSpec,
-    TaskSpec,
-    _validate_graph,
-)
+from .model import CampaignSpec, CondorSpec, DEFAULT_STARTUP_RETRIES, ExecutionSpec, FileRef, ResourceSpec, TaskSpec, _validate_graph
 from .walltime import parse_walltime
 
 _FIELD_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -258,7 +250,7 @@ def _explicit_each_parts(parts: List[str], lineno: int) -> Tuple[List[str], List
     return names, values
 
 
-def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
+def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTemplate]]:
     campaign_name: str | None = None
     backend = "local"
     condor_cpus = 1
@@ -266,8 +258,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
     condor_disk = "2GB"
     condor_walltime: int | None = None
     condor_getenv = True
-    condor_wrapper: str | None = None
-    condor_wrapper_args: Tuple[str, ...] = ()
+    payload_wrapper: str | None = None
+    payload_wrapper_args: Tuple[str, ...] = ()
     wrapper_lineno = 0
     tasks: List[_TaskTemplate] = []
     variables: Dict[str, str] = {}
@@ -332,8 +324,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
                 elif directive == "wrapper":
                     if not values:
                         raise ValueError(f"line {lineno}: %wrapper needs an executable path")
-                    condor_wrapper = values[0]
-                    condor_wrapper_args = tuple(values[1:])
+                    payload_wrapper = values[0]
+                    payload_wrapper_args = tuple(values[1:])
                     wrapper_lineno = lineno
                 else:
                     raise ValueError(
@@ -454,20 +446,20 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
 
     _apply_static_variables(tasks, variables)
 
-    if condor_wrapper is not None:
+    if payload_wrapper is not None:
         # Split before substitution: an imported path or argument containing
         # spaces/quotes must remain one token, not become shell syntax.
         context = f"line {wrapper_lineno}: %wrapper"
         wrapper_tokens = tuple(
             _format(token, variables, context)
-            for token in (condor_wrapper, *condor_wrapper_args)
+            for token in (payload_wrapper, *payload_wrapper_args)
         )
         if not wrapper_tokens[0].strip():
             raise ValueError(f"{context} needs a nonempty executable path")
         if any("\0" in token for token in wrapper_tokens):
             raise ValueError(f"{context} may not contain NUL characters")
-        condor_wrapper, *arguments = wrapper_tokens
-        condor_wrapper_args = tuple(arguments)
+        payload_wrapper, *arguments = wrapper_tokens
+        payload_wrapper_args = tuple(arguments)
 
     condor = CondorSpec(
         request_cpus=condor_cpus,
@@ -475,10 +467,9 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, List[_TaskTemplate]]:
         request_disk=condor_disk,
         request_walltime_seconds=condor_walltime,
         getenv=condor_getenv,
-        wrapper=condor_wrapper,
-        wrapper_args=condor_wrapper_args,
     )
-    return campaign_name, backend, condor, tasks
+    execution = ExecutionSpec(wrapper=payload_wrapper, wrapper_args=payload_wrapper_args)
+    return campaign_name, backend, condor, execution, tasks
 
 
 def _family_bindings(
@@ -734,7 +725,7 @@ def _instantiate(
 
 
 def load_yall_spec(source: Path) -> CampaignSpec:
-    campaign_name, backend, condor, templates = _parse(source.read_text())
+    campaign_name, backend, condor, execution, templates = _parse(source.read_text())
     template_map: Dict[str, _TaskTemplate] = {}
     for template in templates:
         if template.name in template_map:
@@ -757,4 +748,5 @@ def load_yall_spec(source: Path) -> CampaignSpec:
         source=source,
         backend=backend,
         condor=condor,
+        execution=execution,
     )

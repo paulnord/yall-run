@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 from . import __version__
+from .execution import archive_wrapper
 from .model import CampaignSpec
 from .paths import logical_absolute, logical_cwd
 from .worker import run_task
@@ -357,6 +358,9 @@ def create_campaign(
     launch_cwd = logical_cwd()
     created_at = _utc_now()
     workflow_cwd = spec.source.parent
+    wrapper = archive_wrapper(spec, campaign_dir)
+    if wrapper is not None:
+        execution["wrapper"] = wrapper
 
     frozen_tasks: dict[str, Any] = {}
     for task in spec.tasks:
@@ -375,6 +379,7 @@ def create_campaign(
         record["cwd"] = str(task_cwd)
         executable = _executable_provenance(record["command"], task_cwd)
         if executable is not None:
+            executable["context"] = "creation_host"
             record["executable"] = executable
         record["inputs"] = []
         for item in task.inputs:
@@ -394,7 +399,7 @@ def create_campaign(
         frozen_tasks[task.name] = record
 
     manifest = {
-        "schema": 7,
+        "schema": 8,
         "id": campaign_dir.name,
         "name": spec.name,
         "backend": selected_backend,

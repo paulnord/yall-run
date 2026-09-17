@@ -40,9 +40,8 @@ def rendered(tmp_path):
         write(c / backend / "submit.json", record)
         assert run_task(c, "prepare") == 0
         # Reproduce the missing Convert failure that motivated this change.
-        with pytest.raises(OSError):
-            run_task(c, "convert")
-        assert campaign_status(c)["tasks"][1]["state"] == "running"
+        assert run_task(c, "convert") == 2
+        assert campaign_status(c)["tasks"][1]["state"] == "failed"
         (tmp_path / "convert.sh").write_text("#!/bin/sh\nexit 0\n")
         (tmp_path / "convert.sh").chmod(0o755)
         return c
@@ -81,7 +80,7 @@ def test_cli_resume_dispatch_and_reconciled_status(rendered, monkeypatch, capsys
     capsys.readouterr()
     assert main(["status", str(c), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["tasks"][1]["state"] == "interrupted"
+    assert data["tasks"][1]["state"] == "failed"
     assert data["scheduler"]["query_ok"] is True
     if backend == "condor":
         assert data["scheduler"]["cluster_id"] == 201

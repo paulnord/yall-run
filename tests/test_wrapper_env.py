@@ -34,5 +34,5 @@ def test_thread_limits_are_frozen_wrapper_arguments(tmp_path, monkeypatch, backe
     proc = subprocess.run(["bash", str(script)], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert (campaign / "one_attempt_001/stdout.log").read_text().strip() == "1 1"
-    record = json.loads((campaign / "campaign.json").read_text())["execution"][backend]["wrapper"]
+    record = json.loads((campaign / "campaign.json").read_text())["execution"]["wrapper"]
     assert record["args"] == ["--", "/usr/bin/env", "ROOT_MAX_THREADS=1", "OMP_NUM_THREADS=1"]

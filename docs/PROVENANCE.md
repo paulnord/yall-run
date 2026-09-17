@@ -36,7 +36,8 @@ Each task attempt has two distinct records:
 - declared outputs
 - requested resources
 - execution host
-- Python version
+- host Python version and interpreter path
+- archived payload wrapper identity and planned launch argv
 - start time
 
 This separation means the launch conditions remain intact even if the task later fails.
@@ -65,28 +66,50 @@ YALL_BACKEND
 YALL_TASK
 YALL_ATTEMPT
 YALL_PROVENANCE
+YALL_TASK_CWD
 ```
 
-`YALL_PROVENANCE` points to the attempt's launch-provenance JSON.
+`YALL_PROVENANCE` points to the attempt's launch-provenance JSON. `YALL_TASK_CWD`
+is the frozen working directory used to launch the wrapper/payload. These
+variables are provided to the wrapper, which must forward them when required.
+A container that reads the JSON must make that host path accessible.
 
 Application-specific programs can use that path to copy or embed yall provenance into their own native output formats without requiring yall-run to understand ROOT files, HDF5 files, databases, or other scientific formats.
 
 ## Archived execution wrappers
 
-For queued backends, `%wrapper PATH [ARG ...]` copies the executable into the campaign's `environment/` directory and freezes its arguments separately. The wrapper record contains:
+For every backend, `%wrapper PATH [ARG ...]` copies the executable into the campaign's `environment/` directory and freezes its arguments separately. The wrapper record contains:
 
 - `source`: resolved source executable path
 - `path`: archived executable path used by the jobs
 - `sha256` and `size_bytes`: fingerprint of the archived executable bytes
 - `args`: ordered argument list, including literal separators and empty strings
 
-The hash covers the executable, not the arguments. Both are recorded so a wrapper invocation can be reconstructed without parsing a shell command. The record is stored in `campaign.json` at `execution.<backend>.wrapper` and in `<backend>/render.json`. `start.json` copies the execution policy when the campaign starts. Relational exports of started campaigns preserve this policy in `campaign_start.execution_json`.
+The hash covers the executable, not the arguments. Both are recorded so a wrapper invocation can be reconstructed without parsing a shell command. The record is stored in `campaign.json` at `execution.wrapper`. `start.json` copies the execution policy when the campaign starts. Relational exports of started campaigns preserve this policy in `campaign_start.execution_json`.
 
-Path-only wrappers have an empty argument list. Older campaigns may lack `args` or the manifest-level wrapper record; their existing rendered scripts still define their original invocation.
+Path-only wrappers have an empty argument list. Payload-only wrapping is a
+pre-beta behavior change; no legacy invocation mode or migration is provided.
 
 Only the wrapper executable itself is archived. Resources named by its arguments or otherwise referenced at runtime are not copied automatically. For example, the EIC example archives `run-in-eic-shell.sh` and freezes the selected `EIC_SHELL` path as an argument, but it does not archive that `eic-shell` installation or its container image. A launcher that ultimately refers to a moving image tag therefore remains non-immutable.
 
-See [BACKENDS.md](BACKENDS.md#execution-wrappers) for wrapper execution behavior.
+The worker's launch provenance has `execution.context = "host"`, its Python
+version/interpreter, `execution.wrapper` (the frozen record, or null), and
+`execution.launch_command` (the exact planned argv). The task's `command` remains
+the scientific command as written after expansion. A guard can reject the task
+before that planned invocation is executed. Final attempts also record
+`launch_command`; `launch_pid` identifies the host worker's immediate child
+(the wrapper when present), not necessarily the final application process. Timing includes
+wrapper setup and payload execution, not queue wait.
+
+This does not probe or assert the payload's Python, OS or container digest.
+Creation-time executable lookup is explicitly labeled `context = "creation_host"`;
+a host PATH candidate/hash is not proof of the binary selected inside a wrapper.
+Record application/container identity in the application layer when needed.
+The complete wrapper/launch details are in canonical JSON; existing relational
+exports retain host fields and campaign execution JSON, not separate new wrapper
+tables.
+
+See [Execution wrappers](WRAPPERS.md) for the contract.
 
 ## Mutable state is separate
 

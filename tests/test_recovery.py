@@ -190,8 +190,17 @@ def test_condor_uses_latest_native_rescue_and_preserves_original_evidence(campai
     assert submission["cluster_id"] == 201
     assert submission["commands"] == [["condor_submit_dag", "-dorescuefrom", "2", "campaign.dag"]]
     assert (rd / "campaign.dag.rescue002").read_bytes() == (d / "campaign.dag.rescue002").read_bytes()
-    assert str(rd / "logs") in (rd / "yall_0001_convert.sub").read_text()
-    assert "request_memory = 4GB" in (rd / "yall_0001_convert.sub").read_text()
+    submit_text = (rd / "yall_0001_convert.sub").read_text()
+    output_path = rd / "logs" / "yall_0001_convert.out"
+    error_path = rd / "logs" / "yall_0001_convert.err"
+    event_path = rd / "events.log"
+    assert f"output = {output_path}" in submit_text
+    assert f"error = {error_path}" in submit_text
+    assert f"log = {event_path}" in submit_text
+    assert f'output = "{output_path}"' not in submit_text
+    assert f'error = "{error_path}"' not in submit_text
+    assert f'log = "{event_path}"' not in submit_text
+    assert "request_memory = 4GB" in submit_text
     for name, value in original.items():
         if name != "state/convert.json":
             assert (c / name).read_bytes() == value

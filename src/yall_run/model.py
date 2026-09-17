@@ -37,12 +37,28 @@ class CondorSpec:
     request_memory: str = "2GB"
     request_disk: str = "2GB"
     getenv: bool = True
-    wrapper: str | None = None
-    wrapper_args: Tuple[str, ...] = ()
     request_walltime_seconds: int | None = None
 
     def __post_init__(self) -> None:
         validate_walltime(self.request_walltime_seconds)
+
+
+@dataclass(frozen=True)
+class ExecutionSpec:
+    """Backend-independent policy for launching the scientific payload."""
+
+    wrapper: str | None = None
+    wrapper_args: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.wrapper is None:
+            if self.wrapper_args:
+                raise ValueError("wrapper arguments require a wrapper executable")
+            return
+        if not self.wrapper.strip():
+            raise ValueError("wrapper needs a nonempty executable path")
+        if any("\0" in token for token in (self.wrapper, *self.wrapper_args)):
+            raise ValueError("wrapper may not contain NUL characters")
 
 
 @dataclass(frozen=True)
@@ -66,6 +82,7 @@ class CampaignSpec:
     source: Path
     backend: str = "local"
     condor: CondorSpec = CondorSpec()
+    execution: ExecutionSpec = ExecutionSpec()
     set_values: Tuple[Tuple[str, str], ...] = ()
 
 

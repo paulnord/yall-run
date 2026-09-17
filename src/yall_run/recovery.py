@@ -120,7 +120,8 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
             # Also find a manually restarted DAG in a known campaign directory.
             clauses += [f"Iwd == {json.dumps(str(path.parent))}" for path, _ in records]
             raw = _checked(["condor_q", "-json", "-constraint", " || ".join(clauses)])
-            ads = json.loads(raw)
+            # Some Condor pools return success with empty stdout when no ads match.
+            ads = [] if not raw.strip() else json.loads(raw)
             if not isinstance(ads, list):
                 raise ValueError("condor_q did not return a JSON array")
             for ad in ads:
@@ -329,7 +330,7 @@ def _stage(cdir: Path, directory: Path, plan: dict[str, Any]) -> dict[str, Any]:
             for key, target in {"output": logs / (file.stem + ".out"),
                                 "error": logs / (file.stem + ".err"),
                                 "log": directory / "events.log"}.items():
-                text = re.sub(rf"(?im)^{key}\s*=.*$", f'{key} = "{target}"', text)
+                text = re.sub(rf"(?im)^{key}\s*=.*$", f"{key} = {target}", text)
             (directory / file.name).write_text(text)
         return {"rescue_source": str(rescue), "rescue_number": number,
                 "rescue_sha256": hashlib.sha256(rescue.read_bytes()).hexdigest()}
