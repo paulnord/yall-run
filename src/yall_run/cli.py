@@ -32,6 +32,17 @@ from .worker import run_task
 from .walltime import effective_walltime, format_walltime
 
 
+class _VersionAction(argparse.Action):
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings=option_strings, dest=dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from .version import display_version
+
+        parser._print_message(display_version() + "\n", sys.stdout)
+        parser.exit()
+
+
 def _friendly_sections(parser: argparse.ArgumentParser, positional_title: str = "arguments") -> None:
     parser._positionals.title = positional_title
     parser._optionals.title = "options"
@@ -43,6 +54,10 @@ def _parser() -> argparse.ArgumentParser:
         description="Yet Another Launch Layer. Y'all run!",
     )
     _friendly_sections(parser, "commands")
+    parser.add_argument(
+        "-V", "--version", action=_VersionAction,
+        help="show package version and checkout commit when available",
+    )
     visible_commands = "{validate,plan,create,start,resume,amend,status,retry,export}"
     sub = parser.add_subparsers(
         dest="command",

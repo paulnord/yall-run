@@ -194,3 +194,23 @@ def test_cli_resume_reason_records_filesystem_repair(tmp_path, monkeypatch, caps
     assert record["reason"] == reason
     assert record["result"] == "completed"
     assert (tmp_path / "result.txt").read_text() == "fixed"
+
+
+
+def test_cli_version_reports_alpha_version(capsys):
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out.strip()
+    assert text.startswith("yall-run 0.10.0a1")
+
+
+def test_cli_short_version_reports_alpha_version(capsys):
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["-V"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.startswith("yall-run 0.10.0a1")
