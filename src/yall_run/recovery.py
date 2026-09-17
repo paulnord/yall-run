@@ -120,7 +120,8 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
             # Also find a manually restarted DAG in a known campaign directory.
             clauses += [f"Iwd == {json.dumps(str(path.parent))}" for path, _ in records]
             raw = _checked(["condor_q", "-json", "-constraint", " || ".join(clauses)])
-            ads = json.loads(raw)
+            # Some Condor pools return success with empty stdout when no ads match.
+            ads = [] if not raw.strip() else json.loads(raw)
             if not isinstance(ads, list):
                 raise ValueError("condor_q did not return a JSON array")
             for ad in ads:
