@@ -7,7 +7,7 @@ name = "yall-run"
 version = "0.10.0a1"
 description = "Yet Another Launch Layer: lightweight campaign execution and provenance"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [{name = "Paul Nord"}]
 

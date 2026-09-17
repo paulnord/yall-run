@@ -295,6 +295,18 @@ def _payload_command(command: str | list[str], wrapper: dict[str, Any] | None, s
     return payload
 
 
+
+def _waitstatus_to_exitcode(status: int) -> int:
+    """Python 3.8-compatible equivalent of os.waitstatus_to_exitcode."""
+    converter = getattr(os, "waitstatus_to_exitcode", None)
+    if converter is not None:
+        return int(converter(status))
+    if os.WIFEXITED(status):
+        return int(os.WEXITSTATUS(status))
+    if os.WIFSIGNALED(status):
+        return -int(os.WTERMSIG(status))
+    raise ValueError(f"invalid wait status: {status}")
+
 def _run_command(
     command: list[str],
     *,
@@ -324,7 +336,7 @@ def _run_command(
                 break
             except InterruptedError:
                 continue
-        proc.returncode = os.waitstatus_to_exitcode(status)
+        proc.returncode = _waitstatus_to_exitcode(status)
         user_seconds = float(usage.ru_utime)
         sys_seconds = float(usage.ru_stime)
     else:

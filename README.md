@@ -33,7 +33,7 @@ Slurm and PBS are tested in CI with simulated scheduler commands but have not ye
 
 ## Install
 
-Requires Python 3.9+.
+Requires Python 3.8+.
 
 ```bash
 python3 -m pip install -e .
