@@ -1,0 +1,71 @@
+name: Fix Condor resume paths
+
+on:
+  push:
+    branches:
+      - feat/payload-wrapper
+
+permissions:
+  contents: write
+
+jobs:
+  fix-test-push:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/payload-wrapper
+          fetch-depth: 0
+
+      - name: Patch source and regression test
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one occurrence, found {count}: {old!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "src/yall_run/recovery.py",
+              '                text = re.sub(rf"(?im)^{key}\\s*=.*$", f\'{key} = "{target}"\', text)\n',
+              '                text = re.sub(rf"(?im)^{key}\\s*=.*$", f"{key} = {target}", text)\n',
+          )
+
+          old = '''    assert str(rd / "logs") in (rd / "yall_0001_convert.sub").read_text()\n    assert "request_memory = 4GB" in (rd / "yall_0001_convert.sub").read_text()\n'''
+          new = '''    submit_text = (rd / "yall_0001_convert.sub").read_text()\n    output_path = rd / "logs" / "yall_0001_convert.out"\n    error_path = rd / "logs" / "yall_0001_convert.err"\n    event_path = rd / "events.log"\n    assert f"output = {output_path}" in submit_text\n    assert f"error = {error_path}" in submit_text\n    assert f"log = {event_path}" in submit_text\n    assert f'output = "{output_path}"' not in submit_text\n    assert f'error = "{error_path}"' not in submit_text\n    assert f'log = "{event_path}"' not in submit_text\n    assert "request_memory = 4GB" in submit_text\n'''
+          replace_once("tests/test_recovery.py", old, new)
+          PY
+          git diff --check
+          git diff -- src/yall_run/recovery.py tests/test_recovery.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Test Python 3.9
+        run: |
+          python -m pip install -e . pytest
+          pytest -q
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test Python 3.12
+        run: |
+          python -m pip install -e . pytest
+          pytest -q
+
+      - name: Commit tested fix and push
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-condor-resume-paths.yml
+          git add src/yall_run/recovery.py tests/test_recovery.py
+          git commit -m 'Fix Condor resume log paths'
+          git push origin HEAD:feat/payload-wrapper
