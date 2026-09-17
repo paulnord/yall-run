@@ -29,6 +29,17 @@ class _EachTemplate:
     names: List[str]
     values: List[str]
     pattern: bool
+    source: str | None = None
+    lineno: int = 0
+
+
+@dataclass
+class _Parameters:
+    """Recipe-only data, lowered to existing explicit @each bindings."""
+
+    lineno: int
+    columns: List[str]  # Empty for a one-dimensional @list.
+    rows: List[Tuple[str, ...]]
 
 
 @dataclass
@@ -250,6 +261,64 @@ def _explicit_each_parts(parts: List[str], lineno: int) -> Tuple[List[str], List
     return names, values
 
 
+def _parameter_tokens(text: str, lineno: int) -> List[str]:
+    try:
+        return shlex.split(text)
+    except ValueError as exc:
+        raise ValueError(f"line {lineno}: {exc}") from None
+
+
+def _resolve_parameter_sets(
+    tasks: Sequence[_TaskTemplate],
+    parameters: Mapping[str, _Parameters],
+    variables: Mapping[str, str],
+) -> None:
+    # Validate every declaration, even unused ones. Preserve declaration order
+    # and string spelling (e.g. run 00296) rather than coercing or sorting data.
+    for name, parameter in parameters.items():
+        context = f"line {parameter.lineno}: parameter set {name!r}"
+        if not parameter.rows:
+            raise ValueError(f"{context} must not be empty")
+        rows = [tuple(_format(value, variables, context) for value in row)
+                for row in parameter.rows]
+        if any(not value or any(c in value for c in "\0\r\n")
+               for row in rows for value in row):
+            raise ValueError(f"{context} contains an empty or invalid value")
+        if len(set(rows)) != len(rows):
+            raise ValueError(f"{context} rows must be unique")
+        parameter.rows = rows
+
+    for task in tasks:
+        each = task.each
+        if each is None or each.source is None:
+            continue
+        context = f"line {each.lineno}: @each"
+        name, separator, column = each.source.partition(".")
+        parameter = parameters.get(name)
+        if parameter is None:
+            raise ValueError(f"{context}: unknown parameter set {name!r}")
+        if separator:
+            if not parameter.columns:
+                raise ValueError(f"{context}: @list {name!r} has no columns")
+            if column not in parameter.columns:
+                raise ValueError(f"{context}: unknown column {column!r} in table {name!r}")
+            index = parameter.columns.index(column)
+            # A column is a reusable conversion list. The same pedestal may
+            # appear in multiple pairs but should produce only one conversion.
+            rows = list(dict.fromkeys((row[index],) for row in parameter.rows))
+        else:
+            rows = parameter.rows
+        width = len(rows[0])
+        if len(each.names) != width:
+            raise ValueError(
+                f"{context}: {each.source!r} provides {width} field(s), "
+                f"but {len(each.names)} binding name(s) were supplied"
+            )
+        # Keep all existing @each duplicate/name/graph validation and inherited
+        # patterned-parent expansion. No scheduler or worker feature is needed.
+        each.values = [value for row in rows for value in row]
+
+
 def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTemplate]]:
     campaign_name: str | None = None
     backend = "local"
@@ -263,6 +332,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
     wrapper_lineno = 0
     tasks: List[_TaskTemplate] = []
     variables: Dict[str, str] = {}
+    parameters: Dict[str, _Parameters] = {}
+    table: _Parameters | None = None
     current: _TaskTemplate | None = None
 
     for lineno, raw in _logical_lines(text):
@@ -273,6 +344,34 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
 
         if not indented:
             current = None
+            table = None
+            if stripped.split()[0] in {"@list", "@table"}:
+                directive = stripped.split()[0]
+                if tasks:
+                    raise ValueError(f"line {lineno}: {directive} must appear before tasks")
+                if directive == "@table" and not stripped.endswith(":"):
+                    raise ValueError(f"line {lineno}: @table header must end with ':'")
+                header = stripped[:-1] if directive == "@table" else stripped
+                parts = _parameter_tokens(header, lineno)
+                if len(parts) < 3:
+                    raise ValueError(f"line {lineno}: {directive} needs a name and "
+                                     + ("columns" if directive == "@table" else "values"))
+                name = parts[1]
+                if not _valid_variable_name(name):
+                    raise ValueError(f"line {lineno}: invalid parameter set name {name!r}")
+                if name in parameters or name in variables:
+                    raise ValueError(f"line {lineno}: duplicate parameter name {name!r}")
+                columns = parts[2:] if directive == "@table" else []
+                if any(not _valid_variable_name(c) for c in columns):
+                    raise ValueError(f"line {lineno}: invalid @table column name")
+                if len(set(columns)) != len(columns):
+                    raise ValueError(f"line {lineno}: @table column names must be unique")
+                parameter = _Parameters(lineno, columns,
+                                        [] if columns else [(v,) for v in parts[2:]])
+                parameters[name] = parameter
+                if columns:
+                    table = parameter
+                continue
             if stripped.startswith("campaign "):
                 campaign_name = stripped[len("campaign "):].strip()
                 if not campaign_name:
@@ -292,6 +391,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
                 name = parts[1]
                 if not _valid_variable_name(name):
                     raise ValueError(f"line {lineno}: invalid @set name {name!r}")
+                if name in parameters:
+                    raise ValueError(f"line {lineno}: duplicate parameter name {name!r}")
                 variables[name] = parts[2]
                 continue
             if stripped.startswith("@env "):
@@ -301,6 +402,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
                 name = parts[1]
                 if not _valid_variable_name(name):
                     raise ValueError(f"line {lineno}: invalid @env name {name!r}")
+                if name in parameters:
+                    raise ValueError(f"line {lineno}: duplicate parameter name {name!r}")
                 if name not in os.environ:
                     raise ValueError(
                         f"line {lineno}: required environment variable {name!r} is not set"
@@ -345,6 +448,16 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
                 f"line {lineno}: expected campaign, backend, directive, or task header"
             )
 
+        if table is not None:
+            row = tuple(_parameter_tokens(stripped, lineno))
+            if len(row) != len(table.columns):
+                raise ValueError(
+                    f"line {lineno}: @table row needs {len(table.columns)} values, "
+                    f"got {len(row)}"
+                )
+            table.rows.append(row)
+            continue
+
         if current is None:
             raise ValueError(f"line {lineno}: indented line outside a task")
 
@@ -373,6 +486,18 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
                 if explicit is not None:
                     names, values = explicit
                     current.each = _EachTemplate(names=names, values=values, pattern=False)
+                    continue
+                if "in" in parts[2:]:
+                    split = len(parts) - 2 if parts[-2] == "in" else parts.index("in", 2)
+                    names, source = parts[1:split], parts[split + 1:]
+                    if len(source) != 1:
+                        raise ValueError(f"line {lineno}: @each ... in needs exactly one source")
+                    source_parts = source[0].split(".")
+                    if (any(not _valid_variable_name(n) for n in names)
+                            or len(source_parts) > 2
+                            or any(not _valid_variable_name(n) for n in source_parts)):
+                        raise ValueError(f"line {lineno}: invalid named @each binding or source")
+                    current.each = _EachTemplate(names, [], False, source[0], lineno)
                     continue
                 values = parts[2:]
                 current.each = _EachTemplate(
@@ -445,6 +570,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
             raise ValueError(f"line {task.lineno}: task {task.name!r} needs a command")
 
     _apply_static_variables(tasks, variables)
+    _resolve_parameter_sets(tasks, parameters, variables)
 
     if payload_wrapper is not None:
         # Split before substitution: an imported path or argument containing

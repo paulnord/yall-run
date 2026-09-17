@@ -298,7 +298,39 @@ A trailing backslash continues a long logical line.
 
 ## Pattern tasks with `@each`
 
-`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, or supplied as correlated rows for several placeholders. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
+`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, supplied as correlated rows for several placeholders, or drawn from a top-level named list/table. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
+
+### Reuse a named list or table
+
+```text
+@list runs 296 298 300
+
+@table pairs ped run:
+    296 298
+    296 300
+
+convert-{run}:
+    @each run in runs
+    echo converting {run}
+
+pedestal-{ped}:
+    @each ped in pairs.ped
+    echo pedestal {ped}
+
+calibrate-{ped}-{run}: pedestal-{ped} convert-{run}
+    @each ped run in pairs
+    echo calibrating {run} with {ped}
+```
+
+Declarations belong at the top level before the tasks. A table binds correlated
+rows, not a Cartesian product. Column references such as `pairs.ped` provide
+unique values in first-seen order, so a shared pedestal is processed once.
+An independent `@list` preserves its declared order and rejects duplicates.
+The existing patterned-parent inheritance and campaign freezing rules apply.
+
+See [Reusable parameter lists and tables](PARAMETERS.md) for quoting, validation,
+static substitutions, and amendment semantics. In the non-colon `@each` form,
+`in` introduces the named source; use `@each mode: in out` for literal values.
 
 ### Discover values from matching files
 
