@@ -131,6 +131,7 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             "queue 1\n"
         )
         dag_lines.append(f"JOB {node} {submit.name}")
+        dag_lines.append(f'VARS {node} +YallDAGRetry="$(RETRY)"')
         if task.retries:
             dag_lines.append(f"RETRY {node} {task.retries} UNLESS-EXIT {_STARTUP_FAILURE_EXIT}")
 
