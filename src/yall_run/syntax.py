@@ -209,6 +209,36 @@ def _replace_static(value: str, variables: Mapping[str, str]) -> str:
     )
 
 
+def _resolve_static_variables(variables: Mapping[str, str]) -> Dict[str, str]:
+    """Resolve @set/@env references while preserving task placeholders."""
+    resolved: Dict[str, str] = {}
+    visiting: List[str] = []
+
+    def resolve(name: str) -> str:
+        if name in resolved:
+            return resolved[name]
+        if name in visiting:
+            cycle = visiting[visiting.index(name):] + [name]
+            raise ValueError(
+                "static variable cycle: " + " -> ".join(cycle)
+            )
+        visiting.append(name)
+        value = variables[name]
+
+        def replace(match: re.Match[str]) -> str:
+            other = match.group(1)
+            return resolve(other) if other in variables else match.group(0)
+
+        value = _FIELD_RE.sub(replace, value)
+        visiting.pop()
+        resolved[name] = value
+        return value
+
+    for name in variables:
+        resolve(name)
+    return resolved
+
+
 def _apply_static_variables(
     tasks: Sequence[_TaskTemplate], variables: Mapping[str, str]
 ) -> None:
@@ -580,6 +610,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
         if not task.command:
             raise ValueError(f"line {task.lineno}: task {task.name!r} needs a command")
 
+    variables = _resolve_static_variables(variables)
     _apply_static_variables(tasks, variables)
     _resolve_parameter_sets(tasks, parameters, variables)
 
