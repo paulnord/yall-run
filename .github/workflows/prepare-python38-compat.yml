@@ -23,19 +23,18 @@ jobs:
           worker = Path("src/yall_run/worker.py")
           text = worker.read_text()
           marker = "\ndef _run_command(\n"
-          helper = '''
-
-def _waitstatus_to_exitcode(status: int) -> int:
-    """Python 3.8-compatible equivalent of os.waitstatus_to_exitcode."""
-    converter = getattr(os, "waitstatus_to_exitcode", None)
-    if converter is not None:
-        return int(converter(status))
-    if os.WIFEXITED(status):
-        return int(os.WEXITSTATUS(status))
-    if os.WIFSIGNALED(status):
-        return -int(os.WTERMSIG(status))
-    raise ValueError(f"invalid wait status: {status}")
-'''
+          helper = (
+              "\n\ndef _waitstatus_to_exitcode(status: int) -> int:\n"
+              "    \"\"\"Python 3.8-compatible equivalent of os.waitstatus_to_exitcode.\"\"\"\n"
+              "    converter = getattr(os, \"waitstatus_to_exitcode\", None)\n"
+              "    if converter is not None:\n"
+              "        return int(converter(status))\n"
+              "    if os.WIFEXITED(status):\n"
+              "        return int(os.WEXITSTATUS(status))\n"
+              "    if os.WIFSIGNALED(status):\n"
+              "        return -int(os.WTERMSIG(status))\n"
+              "    raise ValueError(f\"invalid wait status: {status}\")\n"
+          )
           if "def _waitstatus_to_exitcode(" not in text:
               text = text.replace(marker, helper + marker, 1)
           text = text.replace(
@@ -50,17 +49,15 @@ def _waitstatus_to_exitcode(status: int) -> int:
               test_export.write_text("from __future__ import annotations\n\n" + text)
 
           pyproject = Path("pyproject.toml")
-          text = pyproject.read_text().replace(
+          pyproject.write_text(pyproject.read_text().replace(
               'requires-python = ">=3.9"', 'requires-python = ">=3.8"'
-          )
-          pyproject.write_text(text)
+          ))
 
           ci = Path(".github/workflows/tests.yml")
-          text = ci.read_text().replace(
+          ci.write_text(ci.read_text().replace(
               'python-version: ["3.9", "3.12"]',
               'python-version: ["3.8", "3.9", "3.12"]',
-          )
-          ci.write_text(text)
+          ))
 
           readme = Path("README.md")
           readme.write_text(readme.read_text().replace(
