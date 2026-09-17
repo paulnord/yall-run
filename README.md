@@ -83,6 +83,7 @@ That is enough to get started. The details live in the focused documentation bel
 - [Retries](docs/RETRIES.md) - payload retries versus transient startup retries
 - [Campaigns](docs/CAMPAIGNS.md) - create/start lifecycle, frozen campaigns, state, and attempt directories
 - [Resume](docs/RESUME.md) - recover interrupted campaigns on local, Condor, Slurm, and PBS backends
+- [Campaign amendments](docs/AMENDMENTS.md) - safely overlay command fixes for unfinished tasks while preserving provenance
 - [Execution wrappers](docs/WRAPPERS.md) - host-native worker, payload environments, and launcher contract
 - [Backends](docs/BACKENDS.md) - local execution, Condor/DAGMan, Slurm, PBS, resources, and wrappers
 - [Provenance](docs/PROVENANCE.md) - campaign and attempt records and provenance exposed to programs

@@ -120,3 +120,8 @@ yall-run status ./campaigns/<campaign-id>
 ```
 
 The campaign directory remains useful after execution because it ties the frozen workflow, task state, logs, attempts, and provenance together in one durable record.
+
+
+## Amending a failed campaign
+
+If an unfinished task has a bad command, edit the original Yallfile and run `yall-run amend <campaign>`. Yall shows the safe semantic diff and asks for confirmation, then `yall-run resume <campaign>` continues the campaign. `campaign.json` itself remains immutable. See [Campaign amendments](AMENDMENTS.md).

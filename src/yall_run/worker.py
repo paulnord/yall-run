@@ -12,6 +12,9 @@ import time
 from typing import Any
 
 
+YALL_AMENDMENT_SUPPORT = 1
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -86,21 +89,69 @@ def _state_path(campaign_dir: Path, task_name: str) -> Path:
     return campaign_dir / "state" / f"{task_name}.json"
 
 
+def _amendment_paths(campaign_dir: Path) -> list[Path]:
+    root = campaign_dir / "amendments"
+    if not root.is_dir():
+        return []
+    result = []
+    for directory in sorted(root.iterdir()):
+        if directory.is_dir() and directory.name.isdigit():
+            path = directory / "amendment.json"
+            if path.is_file():
+                result.append(path)
+    return result
+
+
+def _effective_task_definition(
+    campaign_dir: Path,
+    manifest: dict[str, Any],
+    task_name: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    tasks = manifest.get("tasks", {})
+    if isinstance(tasks, dict):
+        original = tasks.get(task_name)
+        if not isinstance(original, dict):
+            raise ValueError(f"unknown task: {task_name}")
+        task = dict(original)
+    else:
+        path = _legacy_task_path(campaign_dir, task_name)
+        if not path.is_file():
+            raise ValueError(f"unknown task: {task_name}")
+        task = _read_json(path)
+
+    applied: list[dict[str, Any]] = []
+    for path in _amendment_paths(campaign_dir):
+        record = _read_json(path)
+        number = int(record.get("number", int(path.parent.name)))
+        for change in record.get("changes", []):
+            if change.get("task") != task_name:
+                continue
+            if change.get("field") != "command":
+                raise ValueError(
+                    f"amendment {number:04d} contains unsupported field "
+                    f"{change.get('field')!r} for task {task_name!r}"
+                )
+            if task.get("command") != change.get("before"):
+                raise ValueError(
+                    f"amendment chain mismatch for task {task_name!r} at {path}"
+                )
+            task["command"] = change.get("after")
+            applied.append({
+                "number": number,
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "revised_yallfile_sha256": (record.get("revised_yallfile") or {}).get("sha256"),
+            })
+    return task, applied
+
+
 def _task_definition(
     campaign_dir: Path,
     manifest: dict[str, Any],
     task_name: str,
 ) -> dict[str, Any]:
-    tasks = manifest.get("tasks", {})
-    if isinstance(tasks, dict):
-        task = tasks.get(task_name)
-        if not isinstance(task, dict):
-            raise ValueError(f"unknown task: {task_name}")
-        return task
-    path = _legacy_task_path(campaign_dir, task_name)
-    if not path.is_file():
-        raise ValueError(f"unknown task: {task_name}")
-    return _read_json(path)
+    task, _ = _effective_task_definition(campaign_dir, manifest, task_name)
+    return task
 
 
 def _write_task_state(
@@ -214,7 +265,9 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if not manifest_path.exists():
         raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
-    task = _task_definition(campaign_dir, manifest, task_name)
+    task, task_amendments = _effective_task_definition(
+        campaign_dir, manifest, task_name
+    )
     startup_marker = _startup_marker(campaign_dir, task_name)
 
     number = _next_attempt_number(campaign_dir, manifest, task_name)
@@ -245,6 +298,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "task": {
             "name": task_name,
             "attempt": number,
+            "amendments": task_amendments,
             "parents": task.get("parents", []),
             "retries": task.get("retries", 0),
             "startup_retries": task.get("startup_retries", 0),

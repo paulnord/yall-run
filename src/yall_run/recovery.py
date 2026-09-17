@@ -437,15 +437,39 @@ def _submit(directory: Path, tasks: dict[str, Any], plan: dict[str, Any],
     return record
 
 
+def _amendable_source_changes(cdir: Path) -> list[str]:
+    try:
+        from .amend import amend_campaign
+        proposal = amend_campaign(cdir, dry_run=True)
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+        return []
+    return [str(change["task"]) for change in proposal.get("changes", [])]
+
+
+def _raise_if_source_needs_amendment(cdir: Path) -> None:
+    changed = _amendable_source_changes(cdir)
+    if not changed:
+        return
+    names = ", ".join(changed)
+    raise ValueError(
+        "source Yallfile has amendable command changes for unfinished task(s): "
+        + names
+        + "; run yall-run amend "
+        + shlex.quote(str(cdir))
+        + " before resume"
+    )
+
+
 def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
-                    cancel_pending: bool = False) -> int:
+                    cancel_pending: bool = False, reason: str | None = None) -> int:
     cdir, manifest, tasks = _load(campaign_dir)
     backend = manifest.get("backend", "local")
     if backend == "local":
         if dry_run or cancel_pending:
             raise ValueError("--dry-run and --cancel-pending are queued-backend options")
+        _raise_if_source_needs_amendment(cdir)
         from .campaign import resume_local
-        resume_local(cdir)
+        resume_local(cdir, reason=reason)
         return 0
     if backend not in QUEUED_BACKENDS:
         raise ValueError(f"unsupported backend: {backend}")
@@ -467,6 +491,7 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
         for job in active.values():
             if job["task"] and _state(cdir, manifest, job["task"]).get("state") == "completed":
                 raise ValueError("a completed task has an active job; inspect the conflicting state")
+        _raise_if_source_needs_amendment(cdir)
         plan = _plan(cdir, manifest, tasks, snapshot)
         print(f"[{backend}] resume: keep {len(plan['completed'])} completed; "
               f"retry/continue {len(plan['selected'])} tasks", flush=True)
@@ -483,7 +508,12 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
         round_dir = root / f"{max(numbers, default=0) + 1:04d}"
         directory = round_dir / backend
         directory.mkdir(parents=True)
-        record = {**plan, "started_at": _now(), "status": "preparing"}
+        record = {
+            **plan,
+            "started_at": _now(),
+            "status": "preparing",
+            "reason": reason,
+        }
         record_path = round_dir / "resume.json"
         _write(record_path, record)
         try:

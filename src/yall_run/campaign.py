@@ -15,7 +15,7 @@ from typing import Any
 
 from . import __version__
 from .execution import archive_wrapper
-from .model import CampaignSpec
+from .model import CampaignSpec, TaskSpec
 from .paths import logical_absolute, logical_cwd
 from .worker import run_task
 from .walltime import effective_walltime
@@ -328,6 +328,39 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
     return campaign_dir
 
 
+def normalized_task_definition(
+    spec: CampaignSpec, task: TaskSpec
+) -> dict[str, Any]:
+    """Return the concrete task definition frozen into a campaign.
+
+    Creation may enrich this record with creation-host fingerprints, but this
+    shared semantic form is also what amendment comparison uses.
+    """
+    workflow_cwd = spec.source.parent
+    task_cwd = (
+        logical_absolute(task.cwd, workflow_cwd)
+        if task.cwd
+        else workflow_cwd
+    )
+    record = asdict(task)
+    record["resources"]["walltime_seconds"] = effective_walltime(
+        task.resources.walltime_seconds, spec.condor.request_walltime_seconds
+    )
+    record["parents"] = list(task.parents)
+    if not isinstance(task.command, str):
+        record["command"] = list(task.command)
+    record["cwd"] = str(task_cwd)
+    record["inputs"] = [
+        {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
+        for item in task.inputs
+    ]
+    record["outputs"] = [
+        {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
+        for item in task.outputs
+    ]
+    return record
+
+
 def create_campaign(
     spec: CampaignSpec,
     root: str | Path,
@@ -364,38 +397,16 @@ def create_campaign(
 
     frozen_tasks: dict[str, Any] = {}
     for task in spec.tasks:
-        task_cwd = (
-            logical_absolute(task.cwd, workflow_cwd)
-            if task.cwd
-            else workflow_cwd
-        )
-        record = asdict(task)
-        record["resources"]["walltime_seconds"] = effective_walltime(
-            task.resources.walltime_seconds, spec.condor.request_walltime_seconds
-        )
-        record["parents"] = list(task.parents)
-        if not isinstance(task.command, str):
-            record["command"] = list(task.command)
-        record["cwd"] = str(task_cwd)
+        record = normalized_task_definition(spec, task)
+        task_cwd = Path(record["cwd"])
         executable = _executable_provenance(record["command"], task_cwd)
         if executable is not None:
             executable["context"] = "creation_host"
             record["executable"] = executable
-        record["inputs"] = []
-        for item in task.inputs:
-            input_path = logical_absolute(item.path, task_cwd)
-            input_record: dict[str, Any] = {
-                "role": item.role,
-                "path": str(input_path),
-            }
-            fingerprint = _input_creation_fingerprint(input_path)
+        for input_record in record["inputs"]:
+            fingerprint = _input_creation_fingerprint(Path(input_record["path"]))
             if fingerprint is not None:
                 input_record["creation_fingerprint"] = fingerprint
-            record["inputs"].append(input_record)
-        record["outputs"] = [
-            {"role": item.role, "path": str(logical_absolute(item.path, task_cwd))}
-            for item in task.outputs
-        ]
         frozen_tasks[task.name] = record
 
     manifest = {
@@ -699,7 +710,7 @@ def _next_resume_path(campaign_dir: Path) -> Path:
     return root / f"resume_{number:03d}.json"
 
 
-def resume_local(campaign_dir: str | Path) -> Path:
+def resume_local(campaign_dir: str | Path, *, reason: str | None = None) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
         raise ValueError("resume currently supports local campaigns only")
@@ -730,6 +741,7 @@ def resume_local(campaign_dir: str | Path) -> Path:
     record = {
         "started_at": _utc_now(),
         "backend": "local",
+        "reason": reason,
         "initial_counts": initial["counts"],
     }
     _write_json(resume_path, record)

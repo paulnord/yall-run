@@ -169,3 +169,28 @@ def test_cli_rejects_retired_root_option(tmp_path, monkeypatch):
         assert exc.code == 2
     else:
         raise AssertionError("retired --root option should be rejected by argparse")
+
+
+def test_cli_resume_reason_records_filesystem_repair(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Yallfile").write_text(
+        "campaign repair-resume\n"
+        "backend local\n\n"
+        "finish:\n"
+        "    @output result result.txt\n"
+        "    ! test -d final && printf fixed > result.txt\n"
+    )
+    assert main(["create", "--campaigns-dir", "campaigns"]) == 0
+    campaign_dir = Path(capsys.readouterr().out.strip())
+    assert main(["start", str(campaign_dir)]) == 2
+    capsys.readouterr()
+
+    (tmp_path / "final").mkdir()
+    reason = "Created missing final output directory"
+    assert main(["resume", str(campaign_dir), "--reason", reason]) == 0
+    capsys.readouterr()
+
+    record = json.loads((campaign_dir / "resumes" / "resume_001.json").read_text())
+    assert record["reason"] == reason
+    assert record["result"] == "completed"
+    assert (tmp_path / "result.txt").read_text() == "fixed"

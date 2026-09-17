@@ -563,3 +563,14 @@ def test_no_completed_output_deleted_even_when_overwrite_allowed(campaign, monke
     r.resume_campaign(c)
     assert result.read_text() == "good data"
     assert all(a[-1] != "prepare.sh" for a, _ in scheduler.calls if a[0] == "sbatch")
+
+
+def test_queued_resume_records_operator_reason(campaign, monkeypatch):
+    c = campaign("condor")
+    scheduler = Scheduler("condor")
+    monkeypatch.setattr(r, "_run", scheduler)
+    reason = "Created missing final output directory"
+    assert r.resume_campaign(c, reason=reason) == 0
+    record = r._read(c / "resumes" / "0001" / "resume.json")
+    assert record["reason"] == reason
+    assert record["status"] == "submitted"

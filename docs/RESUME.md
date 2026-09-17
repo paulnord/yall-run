@@ -45,6 +45,17 @@ Fix the original cause before resuming, for example rebuilding an executable
 at the path recorded in the task. Referenced binaries, data and container images
 remain external resources; resuming does not make a moving image immutable.
 
+If you made an out-of-band repair that matters to the audit trail, annotate the
+recovery round with `--reason`. For example:
+
+```bash
+mkdir -p /gpfs/.../final
+yall-run resume campaigns/<campaign-id> --reason "Created missing final output directory"
+```
+
+Yall records that explanation in the resume record. It does not claim to have
+observed, performed, or independently verified the external repair.
+
 ## HTCondor / DAGMan
 
 Condor recovery uses the latest numbered Rescue DAG from the latest recorded
@@ -121,13 +132,15 @@ resumes/
 ```
 
 The record includes the selected and retained tasks, original and reconciled
-states, scheduler snapshot, timestamps, commands, accepted job IDs and, for
-Condor, the rescue source and SHA-256. Old `start.json`, original `submit.json`,
+states, scheduler snapshot, timestamps, commands, accepted job IDs, the optional
+operator-supplied reason and, for Condor, the rescue source and SHA-256. Old
+`start.json`, original `submit.json`,
 `campaign.json`, worker/wrapper files and attempt directories are not replaced.
 New workers use the next attempt number in the same campaign. All recorded
 submission generations participate in queue checks, not just the newest IDs.
-These recovery records are JSON audit records; this change does not extend the
-SQL/CSV export schema with dedicated recovery-round tables.
+Relational export includes recovery rounds in the `resume` table, including the
+optional reason. Local state-count summaries are also exported through
+`resume_count`.
 
 If a submit command times out or reports acceptance without a parseable job ID,
 its `submit.json` retains an `in_flight` marker. Further recovery is refused
