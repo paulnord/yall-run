@@ -175,8 +175,37 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("campaign_overwrite", "INTEGER"),
         ("task_overwrite", "INTEGER"),
         ("resources_json", "TEXT"),
+        ("amendments_json", "TEXT"),
         ("PRIMARY KEY (campaign_id, task_name, attempt)", ""),
         ("FOREIGN KEY (campaign_id, task_name, attempt) REFERENCES attempt(campaign_id, task_name, attempt)", ""),
+    ),
+    "amendment": (
+        ("campaign_id", "TEXT NOT NULL"),
+        ("amendment_number", "INTEGER NOT NULL"),
+        ("created_at", "TEXT"),
+        ("reason", "TEXT"),
+        ("source", "TEXT"),
+        ("base_spec_sha256", "TEXT"),
+        ("revised_yallfile_path", "TEXT"),
+        ("revised_yallfile_sha256", "TEXT"),
+        ("parent_amendment_number", "INTEGER"),
+        ("parent_amendment_sha256", "TEXT"),
+        ("amendment_sha256", "TEXT NOT NULL"),
+        ("PRIMARY KEY (campaign_id, amendment_number)", ""),
+        ("FOREIGN KEY (campaign_id) REFERENCES campaign(campaign_id)", ""),
+    ),
+    "amendment_change": (
+        ("campaign_id", "TEXT NOT NULL"),
+        ("amendment_number", "INTEGER NOT NULL"),
+        ("change_index", "INTEGER NOT NULL"),
+        ("task_name", "TEXT NOT NULL"),
+        ("field_name", "TEXT NOT NULL"),
+        ("prior_state", "TEXT"),
+        ("prior_attempts", "INTEGER"),
+        ("before_json", "TEXT"),
+        ("after_json", "TEXT"),
+        ("PRIMARY KEY (campaign_id, amendment_number, change_index)", ""),
+        ("FOREIGN KEY (campaign_id, amendment_number) REFERENCES amendment(campaign_id, amendment_number)", ""),
     ),
     "resume": (
         ("campaign_id", "TEXT NOT NULL"),
@@ -185,6 +214,7 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("finished_at", "TEXT"),
         ("backend", "TEXT"),
         ("result", "TEXT"),
+        ("reason", "TEXT"),
         ("PRIMARY KEY (campaign_id, resume_number)", ""),
         ("FOREIGN KEY (campaign_id) REFERENCES campaign(campaign_id)", ""),
     ),
@@ -383,6 +413,46 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
             "execution_json": _json(start.get("execution")),
         })
 
+    amendments_dir = campaign_dir / "amendments"
+    if amendments_dir.is_dir():
+        for amendment_dir in sorted(amendments_dir.iterdir()):
+            if not amendment_dir.is_dir() or not amendment_dir.name.isdigit():
+                continue
+            amendment_path = amendment_dir / "amendment.json"
+            if not amendment_path.is_file():
+                continue
+            amendment = _read_json(amendment_path)
+            number = int(amendment.get("number", int(amendment_dir.name)))
+            revised = amendment.get("revised_yallfile") or {}
+            parent = amendment.get("parent_amendment") or {}
+            rows["amendment"].append({
+                "campaign_id": campaign_id,
+                "amendment_number": number,
+                "created_at": amendment.get("created_at"),
+                "reason": amendment.get("reason"),
+                "source": amendment.get("source"),
+                "base_spec_sha256": amendment.get("base_spec_sha256"),
+                "revised_yallfile_path": revised.get("path"),
+                "revised_yallfile_sha256": revised.get("sha256"),
+                "parent_amendment_number": parent.get("number"),
+                "parent_amendment_sha256": parent.get("sha256"),
+                "amendment_sha256": __import__("hashlib").sha256(
+                    amendment_path.read_bytes()
+                ).hexdigest(),
+            })
+            for index, change in enumerate(amendment.get("changes", [])):
+                rows["amendment_change"].append({
+                    "campaign_id": campaign_id,
+                    "amendment_number": number,
+                    "change_index": index,
+                    "task_name": str(change.get("task", "")),
+                    "field_name": str(change.get("field", "")),
+                    "prior_state": change.get("state"),
+                    "prior_attempts": change.get("attempts"),
+                    "before_json": _json(change.get("before")),
+                    "after_json": _json(change.get("after")),
+                })
+
     state_dir = campaign_dir / "state"
     for task_name_value in task_order:
         task_name = str(task_name_value)
@@ -459,16 +529,25 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
                 "campaign_overwrite": _bool(execution.get("campaign_overwrite")),
                 "task_overwrite": _bool(ptask.get("overwrite")),
                 "resources_json": _json(ptask.get("resources")),
+                "amendments_json": _json(ptask.get("amendments")),
             })
 
     resume_re = re.compile(r"^resume_(\d+)\.json$")
     resumes_dir = campaign_dir / "resumes"
     if resumes_dir.is_dir():
+        resume_paths: list[tuple[int, Path]] = []
         for resume_path in sorted(resumes_dir.glob("resume_*.json")):
             match = resume_re.match(resume_path.name)
-            if match is None:
+            if match is not None:
+                resume_paths.append((int(match.group(1)), resume_path))
+        for round_dir in sorted(resumes_dir.iterdir()):
+            if not round_dir.is_dir() or not round_dir.name.isdigit():
                 continue
-            number = int(match.group(1))
+            resume_path = round_dir / "resume.json"
+            if resume_path.is_file():
+                resume_paths.append((int(round_dir.name), resume_path))
+
+        for number, resume_path in sorted(resume_paths):
             resume = _read_json(resume_path)
             rows["resume"].append({
                 "campaign_id": campaign_id,
@@ -476,7 +555,8 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
                 "started_at": resume.get("started_at"),
                 "finished_at": resume.get("finished_at"),
                 "backend": resume.get("backend"),
-                "result": resume.get("result"),
+                "result": resume.get("result", resume.get("status")),
+                "reason": resume.get("reason"),
             })
             for phase, key in (("initial", "initial_counts"), ("final", "final_counts")):
                 for state, count in sorted((resume.get(key) or {}).items()):
@@ -520,6 +600,14 @@ def write_sqlite(path: str | Path, rows: dict[str, list[dict[str, Any]]]) -> Pat
         columns = {row[1] for row in db.execute("PRAGMA table_info(task)")}
         if "walltime_seconds" not in columns:
             db.execute("ALTER TABLE task ADD COLUMN walltime_seconds INTEGER")
+        provenance_columns = {
+            row[1] for row in db.execute("PRAGMA table_info(attempt_provenance)")
+        }
+        if "amendments_json" not in provenance_columns:
+            db.execute("ALTER TABLE attempt_provenance ADD COLUMN amendments_json TEXT")
+        resume_columns = {row[1] for row in db.execute("PRAGMA table_info(resume)")}
+        if "reason" not in resume_columns:
+            db.execute("ALTER TABLE resume ADD COLUMN reason TEXT")
         for table in TABLES:
             columns = _column_names(table)
             if not rows[table]:

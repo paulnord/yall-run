@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 
+from .amend import amend_campaign
 from .campaign import (
     campaign_manifest,
     campaign_status,
@@ -36,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Yet Another Launch Layer. Y'all run!",
     )
     _friendly_sections(parser, "commands")
-    visible_commands = "{validate,plan,create,start,resume,status,retry,export}"
+    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,export}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -94,6 +95,39 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument(
         "--cancel-pending", action="store_true",
         help="Slurm/PBS: cancel surviving pending/held jobs before rebuilding dependencies",
+    )
+    resume.add_argument(
+        "--reason",
+        help="optional human explanation stored with the resume record",
+    )
+
+    amend = sub.add_parser(
+        "amend",
+        help="compare an edited Yallfile and record safe changes to unfinished tasks",
+    )
+    _friendly_sections(amend)
+    amend.add_argument("campaign_dir")
+    amend.add_argument(
+        "--from",
+        dest="spec_path",
+        metavar="PATH",
+        help="edited Yallfile; defaults to the campaign's recorded source path",
+    )
+    amend_mode = amend.add_mutually_exclusive_group()
+    amend_mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the proposed amendment without writing it",
+    )
+    amend_mode.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="record the amendment without interactive confirmation",
+    )
+    amend.add_argument(
+        "--reason",
+        help="optional human explanation stored with the amendment",
     )
 
     status = sub.add_parser("status", help="show campaign status")
@@ -285,8 +319,49 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "resume":
             return resume_campaign(
                 args.campaign_dir, dry_run=args.dry_run,
-                cancel_pending=args.cancel_pending,
+                cancel_pending=args.cancel_pending, reason=args.reason,
             )
+
+        if args.command == "amend":
+            proposal = amend_campaign(
+                args.campaign_dir,
+                spec_path=args.spec_path,
+                dry_run=True,
+                reason=args.reason,
+            )
+            if not proposal["changes"]:
+                print("[amend] no semantic changes to the frozen workflow")
+                return 0
+            number = int(proposal["number"])
+            print(f"[amend] proposed amendment {number:04d}")
+            for change in proposal["changes"]:
+                print(
+                    f"  {change['task']}: {change['state']} "
+                    f"attempts={change['attempts']} command changed"
+                )
+                print(f"    - {_display_command(change['before'])}")
+                print(f"    + {_display_command(change['after'])}")
+            if args.dry_run:
+                print("[amend] dry run: no files written")
+                return 0
+            if not args.yes:
+                if not getattr(sys.stdin, "isatty", lambda: False)():
+                    raise ValueError(
+                        "amend needs confirmation on an interactive terminal; "
+                        "use --yes to record or --dry-run to preview"
+                    )
+                answer = input(f"[amend] record amendment {number:04d}? [y/N] ")
+                if answer.strip().lower() not in {"y", "yes"}:
+                    print("[amend] no amendment written")
+                    return 0
+            result = amend_campaign(
+                args.campaign_dir,
+                spec_path=args.spec_path,
+                dry_run=False,
+                reason=args.reason,
+            )
+            print(f"[amend] wrote {result['path']}")
+            return 0
 
         if args.command == "status":
             data = campaign_status(args.campaign_dir)

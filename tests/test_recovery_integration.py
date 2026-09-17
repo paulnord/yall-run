@@ -99,6 +99,8 @@ def test_local_resume_dispatch_remains_available(tmp_path, monkeypatch):
     source.write_text("campaign local\nbackend local\nhello:\n    /bin/true\n")
     c = campaign.create_campaign(load_spec(source), tmp_path / "campaigns")
     seen = []
-    monkeypatch.setattr(campaign, "resume_local", lambda path: seen.append(path))
+    monkeypatch.setattr(
+        campaign, "resume_local", lambda path, **kwargs: seen.append(path)
+    )
     assert main(["resume", str(c)]) == 0
     assert seen == [c]

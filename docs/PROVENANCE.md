@@ -131,3 +131,8 @@ yall-run export campaigns \
 Export does not modify the campaign directories, and older campaigns can be included when newer provenance fields are absent.
 
 See [EXPORT.md](EXPORT.md) for the schema, primary keys, and example queries.
+
+
+## Amendment provenance
+
+A campaign amendment is an immutable overlay under `amendments/NNNN/`; it does not rewrite the archived Yallfile or `campaign.json`. Each amendment archives the revised Yallfile and records exact before/after task command changes. Attempts launched through an amendment record the effective command plus amendment number/path/hash in `provenance.json`. See [Campaign amendments](AMENDMENTS.md).

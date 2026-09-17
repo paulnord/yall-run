@@ -194,3 +194,32 @@ def test_cli_export_requires_output_and_reports_counts(tmp_path, monkeypatch, ca
     assert "campaign=1" in output
     assert (tmp_path / "export.sqlite").is_file()
     assert (tmp_path / "csv" / "campaign.csv").is_file()
+
+
+def test_export_includes_queued_resume_reason(tmp_path):
+    campaign_dir = tmp_path / "queued-resume"
+    (campaign_dir / "resumes" / "0001").mkdir(parents=True)
+    (campaign_dir / "campaign.json").write_text(json.dumps({
+        "schema": 8,
+        "id": "queued-resume",
+        "name": "queued resume",
+        "backend": "condor",
+        "tasks": {},
+        "task_order": [],
+    }))
+    reason = "Created missing final output directory"
+    (campaign_dir / "resumes" / "0001" / "resume.json").write_text(json.dumps({
+        "started_at": "2026-09-17T00:00:00+00:00",
+        "finished_at": "2026-09-17T00:01:00+00:00",
+        "backend": "condor",
+        "status": "submitted",
+        "reason": reason,
+    }))
+
+    sqlite_path = tmp_path / "queued.sqlite"
+    _, counts = export_provenance([campaign_dir], sqlite_path=sqlite_path)
+    assert counts["resume"] == 1
+    with sqlite3.connect(sqlite_path) as db:
+        assert db.execute(
+            "SELECT resume_number, backend, result, reason FROM resume"
+        ).fetchone() == (1, "condor", "submitted", reason)

@@ -27,6 +27,8 @@ The same natural identity used by yall is used as the relational primary key. No
 | `task_output` | `campaign_id, task_name, output_index` |
 | `task_executable` | `campaign_id, task_name` |
 | `campaign_start` | `campaign_id` |
+| `amendment` | `campaign_id, amendment_number` |
+| `amendment_change` | `campaign_id, amendment_number, change_index` |
 | `task_state` | `campaign_id, task_name` |
 | `attempt` | `campaign_id, task_name, attempt` |
 | `attempt_input` | `campaign_id, task_name, attempt, input_index` |
@@ -147,3 +149,6 @@ sqlite3 -header -column yall.sqlite \
 ```
 
 Different hashes for the same task name are a useful signal when comparing campaigns that may have run different executable builds.
+
+
+Amendment rows preserve the immutable amendment chain and its semantic task changes. `attempt_provenance.amendments_json` identifies which amendments affected a particular launch.
