@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -150,8 +151,11 @@ def _next_attempt_number(
     return number
 
 
-def _payload_command(command: str | list[str], wrapper: dict[str, Any] | None) -> list[str]:
+def _payload_command(command: str | list[str], wrapper: dict[str, Any] | None, startup_marker: Path | None = None) -> list[str]:
     payload = ["/bin/sh", "-c", command] if isinstance(command, str) else list(command)
+    if startup_marker is not None and wrapper is not None:
+        entry = 'marker=$1; shift; : > "$marker" || exit 125; exec "$@"'
+        payload = ["/bin/sh", "-c", entry, "yall-payload-start", str(startup_marker), *payload]
     if wrapper is not None:
         return [str(wrapper["path"]), *wrapper.get("args", []), *payload]
     return payload
@@ -211,6 +215,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
     task = _task_definition(campaign_dir, manifest, task_name)
+    startup_marker = _startup_marker(campaign_dir, task_name)
 
     number = _next_attempt_number(campaign_dir, manifest, task_name)
     attempt_dir = campaign_dir / f"{task_name}_attempt_{number:03d}"
@@ -221,7 +226,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
 
     command = task["command"]
     wrapper = manifest.get("execution", {}).get("wrapper")
-    launch_command = _payload_command(command, wrapper)
+    launch_command = _payload_command(command, wrapper, startup_marker)
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     worker_pid = os.getpid()
@@ -242,6 +247,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "attempt": number,
             "parents": task.get("parents", []),
             "retries": task.get("retries", 0),
+            "startup_retries": task.get("startup_retries", 0),
             "command": command,
             "cwd": task.get("cwd"),
             "resources": task.get("resources", {}),
@@ -271,6 +277,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         stderr_path.write_text(
             "yall-worker: declared input missing: " + ", ".join(missing_inputs) + "\n"
         )
+        _mark_nonstartup_failure(startup_marker, stderr_path)
         finished = _utc_now()
         outputs = [_inspect_file(ref) for ref in task.get("outputs", [])]
         failure = {"kind": "missing_inputs", "paths": missing_inputs}
@@ -309,6 +316,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             + ", ".join(existing_outputs)
             + "\n"
         )
+        _mark_nonstartup_failure(startup_marker, stderr_path)
         finished = _utc_now()
         failure = {"kind": "outputs_exist", "paths": existing_outputs}
         _write_json(attempt_dir / "attempt.json", {
@@ -369,6 +377,11 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     cwd = Path(task["cwd"]) if task.get("cwd") else None
     launch_error: OSError | None = None
     with stdout_path.open("w") as out, stderr_path.open("w") as err:
+        if startup_marker is not None and wrapper is None:
+            try:
+                startup_marker.touch()
+            except OSError as exc:
+                err.write(f"yall-worker: could not write startup marker {startup_marker}: {exc}\n")
         try:
             command_returncode, timing, launch_pid = _run_command(
                 launch_command,
@@ -436,6 +449,24 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "last_returncode": returncode,
     })
     return returncode
+
+
+def _startup_marker(campaign_dir: Path, task_name: str) -> Path | None:
+    marker_dir = campaign_dir / "condor" / "startup"
+    if not marker_dir.is_dir():
+        return None
+    marker_id = hashlib.sha256(task_name.encode("utf-8")).hexdigest()
+    return marker_dir / f"{marker_id}.started"
+
+
+def _mark_nonstartup_failure(marker: Path | None, stderr_path: Path) -> None:
+    if marker is None:
+        return
+    try:
+        marker.touch()
+    except OSError as exc:
+        with stderr_path.open("a") as err:
+            err.write(f"yall-worker: could not write startup marker {marker}: {exc}\n")
 
 
 def main(argv: list[str] | None = None) -> int:

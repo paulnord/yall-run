@@ -178,7 +178,16 @@ def test_backend_wrapper_args_are_frozen_and_executed(tmp_path, monkeypatch, bac
     result = subprocess.run(["bash", str(script)], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     received = json.loads(capture.read_text().splitlines()[0])
-    assert received == [*args, "echo", "payload"]
+    if backend == "condor":
+        assert received[:len(args)] == list(args)
+        assert received[-2:] == ["echo", "payload"]
+        assert received[len(args):len(args) + 4] == [
+            "/bin/sh", "-c", 'marker=$1; shift; : > "$marker" || exit 125; exec "$@"',
+            "yall-payload-start",
+        ]
+        assert Path(received[len(args) + 4]).parent.name == "startup"
+    else:
+        assert received == [*args, "echo", "payload"]
     assert not (tmp_path / "UNEXPECTED").exists()
     attempt = campaign / "one_attempt_001"
     assert (attempt / "stdout.log").read_text().strip() == "payload"
@@ -192,7 +201,16 @@ def test_backend_path_only_wrapper_still_runs(tmp_path, backend):
     campaign = RENDERERS[backend](load_spec(path), tmp_path / "campaigns")
     result = subprocess.run(["bash", str(node_script(campaign, backend))], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert json.loads(capture.read_text().splitlines()[0]) == ["echo", "payload"]
+    received = json.loads(capture.read_text().splitlines()[0])
+    if backend == "condor":
+        assert received[-2:] == ["echo", "payload"]
+        assert received[:4] == [
+            "/bin/sh", "-c", 'marker=$1; shift; : > "$marker" || exit 125; exec "$@"',
+            "yall-payload-start",
+        ]
+        assert Path(received[4]).parent.name == "startup"
+    else:
+        assert received == ["echo", "payload"]
     assert json.loads((campaign / "campaign.json").read_text())["execution"].get("wrapper")["args"] == []
 
 
@@ -214,8 +232,9 @@ def test_backend_failure_exit_code_and_retries(tmp_path, backend):
                       "%retry 1\n    echo never")
     campaign = RENDERERS[backend](load_spec(path), tmp_path / "campaigns")
     result = subprocess.run(["bash", str(node_script(campaign, backend))], capture_output=True, text=True)
-    assert result.returncode == 37
-    # Condor retries are owned by DAGMan, PBS/Slurm retries by their scripts.
+    assert result.returncode == (100 if backend == "condor" else 37)
+    # Condor classifies a wrapper failure before worker entry as startup failure;
+    # PBS/Slurm retain their existing in-script %retry behavior.
     assert len(capture.read_text().splitlines()) == (1 if backend == "condor" else 2)
     first = json.loads((campaign / "one_attempt_001/attempt.json").read_text())
     assert first["state"] == "failed"

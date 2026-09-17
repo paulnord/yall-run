@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from typing import Any
 
@@ -19,6 +21,8 @@ from .paths import logical_absolute
 from .walltime import effective_walltime
 
 _CLUSTER_RE = re.compile(r"cluster\s+(\d+)", re.IGNORECASE)
+_STARTUP_FAILURE_EXIT = 100
+_PAYLOAD_FAILURE_EXIT = 101
 _STATUS_NAMES = {
     "1": "idle",
     "2": "running",
@@ -40,12 +44,19 @@ def _slug(name: str) -> str:
     return value or "task"
 
 
+def _startup_marker(campaign_dir: Path, task_name: str) -> Path:
+    marker_id = hashlib.sha256(task_name.encode("utf-8")).hexdigest()
+    return campaign_dir / "condor" / "startup" / f"{marker_id}.started"
+
+
 def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
     campaign_dir = create_campaign(spec, root, backend="condor")
     condor_dir = campaign_dir / "condor"
     condor_dir.mkdir()
     logs_dir = condor_dir / "logs"
     logs_dir.mkdir()
+    startup_dir = condor_dir / "startup"
+    startup_dir.mkdir()
 
     worker_source = Path(__file__).with_name("worker.py").read_text()
     worker = condor_dir / "yall_worker.py"
@@ -58,12 +69,33 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
         node = f"yall_{index:04d}_{_slug(task.name)}"
         node_names[task.name] = node
 
-        node_script = condor_dir / f"{node}.sh"
+        marker = _startup_marker(campaign_dir, task.name)
         command = worker_command(worker, campaign_dir, task.name)
+        node_script = condor_dir / f"{node}.sh"
+        marker_word = shlex.quote(str(marker))
         node_script.write_text(
             "#!/bin/bash\n"
-            "set -e\n"
-            f"exec {command}\n"
+            "set -u\n"
+            f"marker={marker_word}\n"
+            "if ! rm -f \"$marker\"; then\n"
+            "    echo \"yall: could not clear startup marker: $marker\" >&2\n"
+            f"    exit {_STARTUP_FAILURE_EXIT}\n"
+            "fi\n"
+            "rc=0\n"
+            f"if {command}; then\n"
+            "    rc=0\n"
+            "else\n"
+            "    rc=$?\n"
+            "fi\n"
+            "if [ ! -e \"$marker\" ]; then\n"
+            "    echo \"yall: startup failed before payload marker (exit=$rc)\" >&2\n"
+            f"    exit {_STARTUP_FAILURE_EXIT}\n"
+            "fi\n"
+            "if [ \"$rc\" -ne 0 ]; then\n"
+            "    echo \"yall: payload failed after startup (exit=$rc)\" >&2\n"
+            f"    exit {_PAYLOAD_FAILURE_EXIT}\n"
+            "fi\n"
+            "exit 0\n"
         )
         node_script.chmod(0o755)
 
@@ -74,6 +106,13 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             task.resources.walltime_seconds, spec.condor.request_walltime_seconds
         )
         time_line = f"+MaxRuntime = {walltime}\n" if walltime is not None else ""
+        startup_retry_lines = ""
+        if task.startup_retries:
+            startup_retry_lines = (
+                f"max_retries = {task.startup_retries}\n"
+                f"retry_until = ExitCode =!= {_STARTUP_FAILURE_EXIT}\n"
+                'requirements = (Machine =!= split(LastRemoteHost, "@")[1])\n'
+            )
 
         submit = condor_dir / f"{node}.sub"
         submit.write_text(
@@ -86,13 +125,14 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             f"request_memory = {request_memory}\n"
             f"request_disk = {request_disk}\n"
             f"{time_line}"
+            f"{startup_retry_lines}"
             f"getenv = {'True' if spec.condor.getenv else 'False'}\n"
             "should_transfer_files = NO\n"
             "queue 1\n"
         )
         dag_lines.append(f"JOB {node} {submit.name}")
         if task.retries:
-            dag_lines.append(f"RETRY {node} {task.retries}")
+            dag_lines.append(f"RETRY {node} {task.retries} UNLESS-EXIT {_STARTUP_FAILURE_EXIT}")
 
     for task in spec.tasks:
         if task.parents:

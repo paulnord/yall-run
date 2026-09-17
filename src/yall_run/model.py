@@ -11,6 +11,7 @@ from .walltime import validate_walltime
 
 
 Command = Union[str, Tuple[str, ...]]
+DEFAULT_STARTUP_RETRIES = 2
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class TaskSpec:
     cwd: str | None = None
     parents: Tuple[str, ...] = ()
     retries: int = 0
+    startup_retries: int = DEFAULT_STARTUP_RETRIES
     inputs: Tuple[FileRef, ...] = ()
     outputs: Tuple[FileRef, ...] = ()
     resources: ResourceSpec = ResourceSpec()

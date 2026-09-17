@@ -97,7 +97,10 @@ def test_relative_executable_cwd_and_argument_boundaries(tmp_path, backend):
     assert not (cwd / "BAD").exists()
     attempt = record(cdir)
     assert attempt["command"] == ["./payload.sh", *arguments]
-    assert attempt["launch_command"][1:] == ["./payload.sh", *arguments]
+    if backend == "condor":
+        assert attempt["launch_command"][-(len(arguments) + 1):] == ["./payload.sh", *arguments]
+    else:
+        assert attempt["launch_command"][1:] == ["./payload.sh", *arguments]
     assert isinstance(attempt["launch_pid"], int)
     assert attempt["launch_pid"] != attempt["worker_pid"]
 
@@ -124,7 +127,7 @@ def test_guards_run_before_wrapper_invocation(tmp_path, backend, guard):
         directive = "    @output data result.txt\n"
     cdir = campaign(tmp_path, backend, "/bin/true",
         wrapper_body=f": > {shlex.quote(str(marker))}\nexec \"$@\"\n", directives=directive)
-    assert run(cdir, backend) == 2
+    assert run(cdir, backend) == (101 if backend == "condor" else 2)
     assert not marker.exists()
     failure = record(cdir)
     assert failure["state"] == "failed"
@@ -137,7 +140,7 @@ def test_guards_run_before_wrapper_invocation(tmp_path, backend, guard):
 def test_wrapper_setup_failure_is_recorded_in_attempt_logs(tmp_path, backend):
     cdir = campaign(tmp_path, backend, "/bin/true",
                     wrapper_body="echo setup-out\necho setup-failed >&2\nexit 42\n")
-    assert run(cdir, backend) == 42
+    assert run(cdir, backend) == (100 if backend == "condor" else 42)
     assert record(cdir)["state"] == "failed"
     assert record(cdir)["command_returncode"] == 42
     assert record(cdir)["failure"]["kind"] == "command_failed"
@@ -150,7 +153,7 @@ def test_missing_archived_wrapper_finalizes_failed_attempt(tmp_path, backend):
     cdir = campaign(tmp_path, backend, "/bin/true")
     manifest = json.loads((cdir / "campaign.json").read_text())
     Path(manifest["execution"]["wrapper"]["path"]).unlink()
-    assert run(cdir, backend) == 2
+    assert run(cdir, backend) == (100 if backend == "condor" else 2)
     attempt = record(cdir)
     assert attempt["state"] == "failed"
     assert attempt["finished_at"]
@@ -172,7 +175,7 @@ def test_wrapped_command_failure_does_not_remain_running(tmp_path, backend):
 @pytest.mark.parametrize("backend", RENDERERS)
 def test_missing_output_is_checked_after_wrapper_returns(tmp_path, backend):
     cdir = campaign(tmp_path, backend, "/bin/true", directives="    @output missing nope.txt\n")
-    assert run(cdir, backend) == 1
+    assert run(cdir, backend) == (101 if backend == "condor" else 1)
     assert record(cdir)["failure"]["kind"] == "missing_outputs"
 
 
@@ -219,7 +222,7 @@ def test_resume_reuses_frozen_payload_wrapper(tmp_path, monkeypatch, backend):
     else:
         submit["jobs"] = {"one": "10.server" if backend == "pbs" else "10"}
     (cdir / backend / "submit.json").write_text(json.dumps(submit))
-    assert run(cdir, backend) == 9
+    assert run(cdir, backend) == (101 if backend == "condor" else 9)
     first_attempt = (cdir / "one_attempt_001/attempt.json").read_bytes()
     manifest = (cdir / "campaign.json").read_bytes()
     # Recovery must not use the current wrapper source or rewrap its own worker.
