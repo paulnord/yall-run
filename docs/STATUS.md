@@ -46,6 +46,7 @@ The third level adds evidence commonly needed for a deeper postmortem:
 
 - every recorded attempt for each problem task, plus recovered tasks with multiple attempts
 - return code, failure kind, timing, and last stderr line for each attempt
+- the first recorded effective command, plus later command transitions and applied amendment numbers
 - actual launch command from `provenance.json`
 - wrapper and amendment information when present
 - provenance path

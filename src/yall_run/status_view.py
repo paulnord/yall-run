@@ -183,12 +183,45 @@ def _append_log_tail(lines: list[str], label: str, path: Path, count: int) -> No
     lines.extend(f"      {line}" for line in tail)
 
 
+def _attempt_amendment_numbers(
+    directory: Path | None, attempt: dict[str, Any]
+) -> tuple[int, ...]:
+    if directory is None:
+        return ()
+    raw_path = attempt.get("provenance")
+    provenance_path = Path(str(raw_path)) if raw_path else directory / "provenance.json"
+    if not provenance_path.is_file():
+        return ()
+    try:
+        provenance = _read_json(provenance_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return ()
+    task = provenance.get("task") or {}
+    amendments = task.get("amendments") if isinstance(task, dict) else None
+    if not isinstance(amendments, list):
+        return ()
+    numbers: list[int] = []
+    for item in amendments:
+        if not isinstance(item, dict) or item.get("number") is None:
+            continue
+        try:
+            number = int(item["number"])
+        except (TypeError, ValueError):
+            continue
+        if number not in numbers:
+            numbers.append(number)
+    return tuple(numbers)
+
+
 def _attempt_history(campaign_dir: Path, task: dict[str, Any]) -> list[str]:
     lines = []
     attempts = int(task.get("attempts", 0))
     if attempts < 1:
         return lines
     lines.append("    attempt history:")
+    show_command_transitions = attempts > 1
+    previous_command: object = object()
+    previous_amendments: tuple[int, ...] | None = None
     for number in range(1, attempts + 1):
         directory, attempt = _attempt_record(campaign_dir, task, number)
         if attempt is None:
@@ -204,6 +237,21 @@ def _attempt_history(campaign_dir: Path, task: dict[str, Any]) -> list[str]:
         if timing:
             summary.append(timing)
         lines.append("      " + " ".join(summary))
+
+        if show_command_transitions:
+            command = attempt.get("command")
+            amendments = _attempt_amendment_numbers(directory, attempt)
+            if command is not None and command != previous_command:
+                label = "command" if previous_amendments is None else "command changed"
+                lines.append(f"        {label}: {_display_command(command)}")
+            if amendments and amendments != previous_amendments:
+                lines.append(
+                    "        amendments: "
+                    + ",".join(f"{item:04d}" for item in amendments)
+                )
+            previous_command = command
+            previous_amendments = amendments
+
         stderr_path = Path(str(attempt.get("stderr") or (directory / "stderr.log" if directory else "")))
         last = _last_nonempty(stderr_path)
         if last:

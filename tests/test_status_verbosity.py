@@ -58,6 +58,9 @@ def test_status_vvv_adds_attempt_and_provenance_history(tmp_path, monkeypatch, c
     assert "1: failed returncode=7 failure=command_failed" in text
     assert "launch:" in text
     assert "provenance:" in text
+    # A single-attempt task already shows its current command in the -vv block;
+    # the history section must not duplicate it.
+    assert text.count("    command:") == 1
 
 
 def test_status_rejects_json_verbosity_and_more_than_four_vs(tmp_path, monkeypatch, capsys):
@@ -91,6 +94,66 @@ def test_verbose_status_reports_condor_hold_reason(tmp_path):
     }
     text = render_status(c, data, verbosity=1)
     assert "scheduler: state=held job_id=45.0 reason=Failed to open output file hold=7/2" in text
+
+
+def test_attempt_history_shows_effective_command_transitions_and_amendments(tmp_path):
+    from yall_run.status_view import _attempt_history
+
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    task = {"name": "final-f1", "state": "completed", "attempts": 3}
+    old_command = ["/bin/cp", "a", "b", "&&", "/bin/cp", "c", "d"]
+    new_command = "/bin/mkdir -p out && /bin/cp a out/a && /bin/cp c out/c"
+
+    for number, state, returncode, command, amendments in (
+        (1, "failed", 1, old_command, []),
+        (2, "failed", 1, old_command, []),
+        (3, "completed", 0, new_command, [{"number": 1}]),
+    ):
+        directory = campaign / f"final-f1_attempt_{number:03d}"
+        directory.mkdir()
+        provenance = directory / "provenance.json"
+        provenance.write_text(json.dumps({"task": {"amendments": amendments}}))
+        (directory / "attempt.json").write_text(json.dumps({
+            "task": "final-f1",
+            "attempt": number,
+            "state": state,
+            "returncode": returncode,
+            "command_returncode": returncode,
+            "command": command,
+            "provenance": str(provenance),
+            "stderr": str(directory / "stderr.log"),
+        }))
+        (directory / "stderr.log").write_text("copy failed\n" if returncode else "")
+
+    text = "\n".join(_attempt_history(campaign, task))
+    assert "command: /bin/cp a b '&&' /bin/cp c d" in text
+    assert text.count("/bin/cp a b '&&' /bin/cp c d") == 1
+    assert "command changed: /bin/mkdir -p out && /bin/cp a out/a && /bin/cp c out/c" in text
+    assert "amendments: 0001" in text
+
+
+def test_attempt_history_ignores_unreadable_amendment_provenance(tmp_path):
+    from yall_run.status_view import _attempt_history
+
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    task = {"name": "one", "state": "failed", "attempts": 2}
+    for number in (1, 2):
+        directory = campaign / f"one_attempt_{number:03d}"
+        directory.mkdir()
+        provenance = directory / "provenance.json"
+        provenance.write_text("not json")
+        (directory / "attempt.json").write_text(json.dumps({
+            "task": "one", "attempt": number, "state": "failed", "returncode": 7,
+            "command": ["/bin/false"], "provenance": str(provenance),
+            "stderr": str(directory / "stderr.log"),
+        }))
+        (directory / "stderr.log").write_text("failed\n")
+
+    text = "\n".join(_attempt_history(campaign, task))
+    assert text.count("command: /bin/false") == 1
+    assert "amendments:" not in text
 
 
 def test_vvv_shows_recent_resume_reason(tmp_path):
