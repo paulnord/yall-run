@@ -24,6 +24,7 @@ def test_condor_dag_render(tmp_path):
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
     dag = (campaign_dir / "condor" / "campaign.dag").read_text()
     assert "RETRY yall_0000_left 2" in dag
+    assert 'VARS yall_0000_left +YallDAGRetry="$(RETRY)"' in dag
     assert "PARENT yall_0000_left yall_0001_right CHILD yall_0002_finish" in dag
     assert (campaign_dir / "condor" / "yall_worker.py").is_file()
     assert not (campaign_dir / "start.json").exists()

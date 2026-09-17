@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
+import stat
 import subprocess
 import sys
 import time
@@ -29,6 +31,87 @@ def _write_json(path: Path, value: Any) -> None:
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
+
+
+# The worker is bundled as a standalone file. Do not depend on ClassAd bindings.
+# Only accept literal identity fields; never evaluate ClassAd expressions here.
+_CONDOR_JOB_AD_MAX_BYTES = 1024 * 1024
+
+
+def _classad_scalar(value: str) -> Any:
+    text = value.strip()
+    if len(text) <= 19 and re.fullmatch(r"[0-9]+", text):
+        value = int(text)
+        return value if value <= 2**63 - 1 else None
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        try:
+            decoded = json.loads(text)
+        except (ValueError, RecursionError):
+            return None
+        return decoded if isinstance(decoded, str) else None
+    # undefined, error, booleans, expressions, and unsupported escapes are not
+    # usable job identifiers. Preserve the failure to interpret, not a guess.
+    return None
+
+
+def _condor_job_context() -> dict[str, Any] | None:
+    """Read a bounded, allowlisted snapshot; telemetry must not fail a task."""
+    value = os.environ.get("_CONDOR_JOB_AD")
+    if not value:
+        return None
+    path = Path(value)
+    result: dict[str, Any] = {"backend": "condor", "job_ad_path": str(path)}
+    try:
+        # O_NONBLOCK also protects against a bad environment pointing at a FIFO.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("job ad is not a regular file")
+            raw = source.read(_CONDOR_JOB_AD_MAX_BYTES + 1)
+            if len(raw) > _CONDOR_JOB_AD_MAX_BYTES:
+                raise ValueError("job ad exceeds the 1 MiB diagnostic limit")
+    except (OSError, ValueError) as exc:
+        result["read_error"] = str(exc)
+        return result
+    result["job_ad_sha256"] = hashlib.sha256(raw).hexdigest()
+    wanted = {
+        "clusterid": ("cluster_id", int),
+        "procid": ("proc_id", int),
+        "globaljobid": ("global_job_id", str),
+        "dagmanjobid": ("dagman_job_id", int),
+        "dagnodename": ("dag_node_name", str),
+        "yalldagretry": ("dag_retry", int),
+        "numjobstarts": ("num_job_starts", int),
+        "remotehost": ("remote_host", str),
+        "lastremotehost": ("last_remote_host", str),
+        "jobstartdate": ("job_start_date", int),
+        "jobcurrentstartdate": ("job_current_start_date", int),
+    }
+    seen: set[str] = set()
+    errors: dict[str, str] = {}
+    for line in raw.decode(errors="replace").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        name, raw_value = line.split("=", 1)
+        field = wanted.get(name.strip().lower())
+        if field is None:
+            continue
+        target, expected = field
+        if target in seen:
+            result.pop(target, None)
+            errors[target] = "duplicate attribute"
+            continue
+        seen.add(target)
+        parsed = _classad_scalar(raw_value)
+        if type(parsed) is not expected or (expected is str and not parsed):
+            errors[target] = "not a supported literal of the expected type"
+        else:
+            result[target] = parsed
+    if errors:
+        result["parse_errors"] = errors
+    if "cluster_id" in result and "proc_id" in result:
+        result["job_id"] = f"{result['cluster_id']}.{result['proc_id']}"
+    return result
 
 
 def _inspect_file(ref: dict[str, Any]) -> dict[str, Any]:
@@ -285,6 +368,9 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     worker_pid = os.getpid()
     task_overwrite = bool(task.get("overwrite", False))
     campaign_overwrite = _campaign_overwrite(campaign_dir)
+    scheduler_context = (
+        _condor_job_context() if manifest.get("backend") == "condor" else None
+    )
 
     launch_provenance = {
         "schema": 1,
@@ -323,6 +409,8 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "campaign_overwrite": campaign_overwrite,
         },
     }
+    if scheduler_context is not None:
+        launch_provenance["scheduler"] = scheduler_context
     _write_json(provenance_path, launch_provenance)
 
     missing_inputs = _missing_paths(inputs)
