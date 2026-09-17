@@ -15,15 +15,15 @@ check-{check}:
 prepare: check-{check}
     echo preparing
 
-convert-ped-{ped}: prepare
+convert-{run}: prepare
+    @each run in pairs.ped pairs.run
+    echo converting {run}
+
+pedestal-{ped}: convert-{ped}
     @each ped in pairs.ped
-    echo converting pedestal {ped}
+    echo fitting pedestal {ped}
 
-convert-muon-{run}: prepare
-    @each run in pairs.run
-    echo converting muon {run}
-
-calibrate-{ped}-{run}: convert-ped-{ped} convert-muon-{run}
+calibrate-{ped}-{run}: pedestal-{ped} convert-{run}
     @each ped run in pairs
     echo calibrating {run} with pedestal {ped}
 

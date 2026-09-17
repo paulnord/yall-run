@@ -303,17 +303,15 @@ A trailing backslash continues a long logical line.
 ### Reuse a named list or table
 
 ```text
-@list runs 296 298 300
-
 @table pairs ped run:
     296 298
     296 300
 
 convert-{run}:
-    @each run in runs
+    @each run in pairs.ped pairs.run
     echo converting {run}
 
-pedestal-{ped}:
+pedestal-{ped}: convert-{ped}
     @each ped in pairs.ped
     echo pedestal {ped}
 
@@ -325,7 +323,9 @@ calibrate-{ped}-{run}: pedestal-{ped} convert-{run}
 Declarations belong at the top level before the tasks. A table binds correlated
 rows, not a Cartesian product. Column references such as `pairs.ped` provide
 unique values in first-seen order, so a shared pedestal is processed once.
-An independent `@list` preserves its declared order and rejects duplicates.
+Multiple sources after `in` form a first-seen ordered union, not a product.
+Each source must have the same width as the binding names. An independent
+`@list` preserves its declared order and rejects duplicates.
 The existing patterned-parent inheritance and campaign freezing rules apply.
 
 See [Reusable parameter lists and tables](PARAMETERS.md) for quoting, validation,
