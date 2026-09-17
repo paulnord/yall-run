@@ -1,0 +1,92 @@
+name: prepare python38 compatibility
+
+on:
+  push:
+    branches: ["compat/python38"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: compat/python38
+      - name: Apply compatibility patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          worker = Path("src/yall_run/worker.py")
+          text = worker.read_text()
+          marker = "\ndef _run_command(\n"
+          helper = '''
+
+def _waitstatus_to_exitcode(status: int) -> int:
+    """Python 3.8-compatible equivalent of os.waitstatus_to_exitcode."""
+    converter = getattr(os, "waitstatus_to_exitcode", None)
+    if converter is not None:
+        return int(converter(status))
+    if os.WIFEXITED(status):
+        return int(os.WEXITSTATUS(status))
+    if os.WIFSIGNALED(status):
+        return -int(os.WTERMSIG(status))
+    raise ValueError(f"invalid wait status: {status}")
+'''
+          if "def _waitstatus_to_exitcode(" not in text:
+              text = text.replace(marker, helper + marker, 1)
+          text = text.replace(
+              "proc.returncode = os.waitstatus_to_exitcode(status)",
+              "proc.returncode = _waitstatus_to_exitcode(status)",
+          )
+          worker.write_text(text)
+
+          test_export = Path("tests/test_export.py")
+          text = test_export.read_text()
+          if not text.startswith("from __future__ import annotations\n"):
+              test_export.write_text("from __future__ import annotations\n\n" + text)
+
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text().replace(
+              'requires-python = ">=3.9"', 'requires-python = ">=3.8"'
+          )
+          pyproject.write_text(text)
+
+          ci = Path(".github/workflows/tests.yml")
+          text = ci.read_text().replace(
+              'python-version: ["3.9", "3.12"]',
+              'python-version: ["3.8", "3.9", "3.12"]',
+          )
+          ci.write_text(text)
+
+          readme = Path("README.md")
+          readme.write_text(readme.read_text().replace(
+              "Requires Python 3.9+.", "Requires Python 3.8+."
+          ))
+
+          quickstart = Path("docs/QUICKSTART.md")
+          quickstart.write_text(quickstart.read_text().replace(
+              "yall-run requires Python 3.9 or newer.",
+              "yall-run requires Python 3.8 or newer.",
+          ))
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: Test full suite on Python 3.8
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . "pytest<8.4"
+          pytest -q
+      - name: Commit tested compatibility change
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/prepare-python38-compat.yml
+          git add src/yall_run/worker.py tests/test_export.py pyproject.toml .github/workflows/tests.yml README.md docs/QUICKSTART.md
+          git commit -m "Support Python 3.8"
+          git push origin HEAD:compat/python38
