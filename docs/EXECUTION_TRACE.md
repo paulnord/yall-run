@@ -1,38 +1,58 @@
 # Execution trace status
 
-**Draft status:** this branch currently implements the scheduler-provenance foundation only. The CLI does not yet accept `-vvvv`; event-log parsing and the trace renderer remain to be implemented.
+`yall-run status CAMPAIGN -vvvv` reconstructs how an interesting task moved through Yall and HTCondor. It is an execution timeline layered on top of the `-vvv` forensic summary, not simply a larger log dump.
 
-`status -vvvv` is intended to reconstruct how a task moved through Yall and the scheduler, not merely print more fields.
+The trace keeps four identities separate:
 
-The trace model has four nested identities:
-
-1. campaign generation: original submission or a numbered resume round;
+1. campaign generation: the original submission or a numbered resume round;
 2. DAG node try: the initial DAGMan node run plus `%retry` reruns;
-3. scheduler execution start: repeated starts of one Condor job after startup retry, eviction, hold/release or other scheduler events;
+3. scheduler execution start: repeated starts of one Condor job after startup retry, eviction, hold/release, or other scheduler events;
 4. Yall attempt: one worker invocation that reached Yall attempt creation.
 
-These are deliberately not collapsed into one counter. A scheduler execution may fail before a Yall attempt exists, and one Condor job ID may execute more than once.
+A scheduler execution can fail before a Yall attempt exists, and one Condor job ID can execute more than once. Those cases must not be collapsed into one attempt counter.
 
-## Provenance foundation
+## Durable scheduler identity
 
-New Condor campaigns stamp each DAG node job with `YallDAGRetry=$(RETRY)` through a DAGMan `VARS` ClassAd. The worker also reads the `_CONDOR_JOB_AD` snapshot, when available, and records scheduler identity in attempt `provenance.json`: cluster/proc and global job ID, DAGMan job and node, DAG retry number, number of job starts, execution host and start timestamps. The job-ad snapshot path and SHA-256 are recorded as well.
+New Condor campaigns stamp each DAG node job with `YallDAGRetry=$(RETRY)` through a DAGMan `VARS` ClassAd. The worker reads the `_CONDOR_JOB_AD` snapshot, when available, and records allowlisted scheduler identity in attempt `provenance.json`: cluster/proc and global job ID, DAGMan job and node, DAG retry number, `NumJobStarts`, execution host, and start timestamps.
 
-The worker accepts only validated, case-insensitive, allowlisted literal attributes. Missing, undefined, malformed, duplicate, or unevaluated fields are left unknown, with diagnostic errors recorded. It does not evaluate ClassAd expressions or copy arbitrary job-ad fields. Reads are limited to 1 MiB and regular files; missing or invalid telemetry must not fail the payload. A local campaign nested inside a Condor job does not inherit that outer job identity.
+The worker accepts only validated, case-insensitive literal values. Missing, malformed, duplicate, undefined, or unevaluated attributes remain unknown. Job-ad reads are bounded and optional telemetry failures never fail the scientific task.
 
-The snapshot path is temporary scheduler storage, not an archived full ClassAd. The selected values and digest are durable in Yall provenance. A complete cluster/proc pair creates an exact **job-level** bridge from Yall attempts to Condor job/DAG identity for future campaigns. Matching a particular execution start additionally requires suitable start/event evidence; do not equate `NumJobStarts` with the ordinal of events in a possibly incomplete log. Older campaigns will need best-effort correlation from durable Yall timestamps plus Condor event/history records, and inferred associations must be labeled as inferred.
+## Event-log reconstruction
 
-## Planned `-vvvv` renderer
+At `-vvvv`, Yall reads the Condor user event logs written for the original submission and each resume generation. It groups events by Condor job ID and reconstructs repeated execution starts, including useful evidence such as:
 
-The execution trace will group evidence by generation, DAG retry, scheduler job and individual execution start, then attach Yall attempts beneath the execution that launched them. Condor event logs provide repeated execute/evict/terminate/hold/release events for one job ID; `condor_history` supplies retained job-level evidence; Yall provenance supplies payload-level facts.
+- execute/start host;
+- eviction;
+- hold and release;
+- disconnect/reconnect;
+- shadow or remote execution failures;
+- termination exit code or signal.
 
-Every rendered relationship should be either directly evidenced or explicitly marked `inferred`.
+The event-log read is bounded to 64 MiB. If a larger log is encountered, Yall reads a bounded tail and labels it as partial. Missing, malformed, or partial logs remain diagnostic conditions rather than status failures.
 
-## Review constraints for the next slice
+A start is labeled `start N` only when the retained event log includes that job's submit event and is therefore complete from submission. Otherwise Yall says `observed start N`; it does not pretend that the observed ordinal is the job's absolute start number.
 
-- Never infer a job ID from an expression, `undefined`, or a missing attribute.
-- Keep repeated starts, node retry counts, Yall attempts, and resume rounds separate.
-- Do not assume a rescued DAG resets its retry counter to zero; display the recorded value.
-- A Yall input/output guard can fail before the payload starts. The launcher's non-startup failure code does not by itself prove scientific code ran.
-- A missing log, missing execute event, or ambiguous correlation must remain explicitly unknown.
-- Event-log and history observations must never mutate campaign records or drive recovery decisions.
-- Existing frozen campaigns retain their bundled worker. These fields become available only in newly created campaigns.
+Exit code `100` from Yall's Condor node launcher is displayed as a startup failure before the payload marker. Exit code `101` is displayed as a Yall-worker failure after startup classification. Yall does not use those launcher codes to claim that a particular scientific command ran.
+
+## Correlating Yall attempts
+
+For campaigns with the scheduler provenance introduced before this feature, Yall can directly attach an attempt to a particular scheduler execution when all of the following agree:
+
+- the Condor job ID recorded in the attempt;
+- a complete-from-submit event sequence for that job;
+- the attempt's `NumJobStarts` value;
+- the corresponding execution start exists in the event log.
+
+That relationship is rendered as `association=direct`. If the job can be identified but the individual execution cannot, the attempt remains explicitly `execution=unknown`. Older campaigns without scheduler identity are still useful: their event logs, Condor history, Yall attempts, resumes, and amendments are shown without fabricating missing links.
+
+## Generations, retries, and recovery
+
+Each initial submission or resume round is shown as its own generation. Resume reasons are displayed when recorded. DAG retry identity comes from the recorded `YallDAGRetry` evidence and is not assumed to reset merely because a Rescue DAG was used.
+
+`condor_q`, `condor_history`, event logs, and Yall provenance are complementary diagnostic sources. Conflicting evidence is marked rather than silently reconciled.
+
+## Safety boundary
+
+Execution-trace evidence is read-only diagnostics. It never changes task state, rewrites attempts, or participates in `resume` recovery decisions. Live scheduler reconciliation continues to use the existing conservative recovery path.
+
+Detailed scheduler execution reconstruction is currently HTCondor-specific. On local, Slurm, and PBS campaigns, `-vvvv` retains the lower-level diagnostics and reports that the detailed scheduler execution trace is Condor-only.

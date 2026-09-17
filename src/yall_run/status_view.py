@@ -5,6 +5,8 @@ from pathlib import Path
 import shlex
 from typing import Any
 
+from .execution_trace import render_condor_execution_trace
+
 
 PROBLEM_STATES = {"failed", "blocked", "interrupted", "unknown", "held", "suspended"}
 SCHEDULER_PROBLEM_STATES = {"held", "suspended", "unknown", "removing"}
@@ -525,5 +527,9 @@ def render_status(campaign_dir: str | Path, data: dict[str, Any], verbosity: int
                     detail = _scheduler_detail({**job, "job_id": job_id})
                     if detail:
                         lines.append(f"  scheduler-job {job_id}: {detail}")
+
+    if verbosity >= 4:
+        lines.append("")
+        lines.extend(render_condor_execution_trace(campaign_dir, data))
 
     return "\n".join(lines)

@@ -142,7 +142,7 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     status.add_argument(
         "-v", "--verbose", action="count", default=0,
-        help="add failure diagnostics; repeat up to -vvv for deeper provenance",
+        help="add failure diagnostics; repeat up to -vvvv for execution trace",
     )
 
     retry = sub.add_parser("retry", help="run one more attempt of a failed local task")
@@ -374,8 +374,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "status":
-            if args.verbose > 3:
-                raise ValueError("status verbosity supports at most -vvv")
+            if args.verbose > 4:
+                raise ValueError("status verbosity supports at most -vvvv")
             if args.json and args.verbose:
                 raise ValueError("status verbosity is text-only; use --json without -v")
             data = campaign_status(args.campaign_dir)

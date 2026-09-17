@@ -12,6 +12,7 @@ For failure diagnosis, repeat `-v` to reveal progressively deeper execution evid
 yall-run status campaigns/<campaign-id> -v
 yall-run status campaigns/<campaign-id> -vv
 yall-run status campaigns/<campaign-id> -vvv
+yall-run status campaigns/<campaign-id> -vvvv
 ```
 
 The levels are diagnostic rather than merely longer versions of the same listing.
@@ -26,8 +27,6 @@ The first level adds a diagnostic block only for failed, blocked, interrupted, h
 
 For an HTCondor hold, Yall also reports the hold reason and hold reason code/subcode when the pool supplies them.
 
-This level is meant to replace the first round of manual commands after seeing `failed` in the ordinary status display.
-
 ## `status -vv`: what exactly ran?
 
 The second level adds execution context for those problem tasks:
@@ -41,11 +40,11 @@ The second level adds execution context for those problem tasks:
 
 Log output is deliberately bounded. `status` is a diagnostic summary, not a substitute for opening the complete log file when a payload emits a very large log.
 
-## `status -vvv`: reconstruct the failure
+## `status -vvv`: forensic summary
 
-The third level adds the evidence that is commonly needed for a deeper postmortem:
+The third level adds evidence commonly needed for a deeper postmortem:
 
-- every recorded attempt for each problem task
+- every recorded attempt for each problem task, plus recovered tasks with multiple attempts
 - return code, failure kind, timing, and last stderr line for each attempt
 - actual launch command from `provenance.json`
 - wrapper and amendment information when present
@@ -54,20 +53,30 @@ The third level adds the evidence that is commonly needed for a deeper postmorte
 - detailed scheduler diagnostics for active nodes
 - larger, but still bounded, stdout and stderr tails
 
-This level is intended to replace most of the `find`, `cat attempt.json`, `cat provenance.json`, log-tail, and scheduler-inspection commands normally used to diagnose a failed campaign.
+For Condor campaigns, `-vvv` also queries `condor_history` using the DAGMan cluster IDs recorded by Yall and identifies relevant submit, DAG, Rescue DAG, and submission records. Historical scheduler evidence remains diagnostic only and never changes task state.
+
+## `status -vvvv`: execution trace
+
+The fourth level retains everything from `-vvv` and adds a structured HTCondor execution timeline. It is designed for cases where "attempt 3 failed" is not enough because the scheduler may have started the same job several times.
+
+The trace groups evidence by:
+
+1. original submission or resume generation;
+2. DAG retry number when recorded;
+3. Condor job ID;
+4. individual scheduler execution starts;
+5. the Yall attempt associated with that execution, when the evidence supports an exact link.
+
+It parses the Condor user event logs for repeated execute events, evictions, holds/releases, disconnect/reconnect events, scheduler failures, exit codes, signals, and execution hosts. Exit code `100` from Yall's Condor launcher is identified as a startup failure before the payload marker; exit code `101` is identified as a Yall-worker failure after startup classification.
+
+A Yall attempt is attached to one execution as `association=direct` only when its recorded Condor job ID and `NumJobStarts` agree with a complete-from-submit event sequence. For an incomplete or rotated log, Yall says `observed start N` and leaves ambiguous attempt-to-start relationships as `execution=unknown` rather than guessing.
+
+Event-log reads are bounded. Missing, malformed, or oversized logs produce partial diagnostics instead of causing `status` to fail. The execution trace is read-only evidence and never participates in recovery decisions.
+
+Detailed scheduler execution reconstruction is currently Condor-specific. Local, Slurm, and PBS campaigns still show all lower verbosity diagnostics and report that the detailed execution trace is Condor-only.
+
+See [Execution trace status](EXECUTION_TRACE.md) for the correlation and uncertainty rules.
 
 ## JSON output
 
-`--json` remains a stable machine-readable status view. Verbosity flags are for human-readable output, so `--json` and `-v` are intentionally not combined. Scripts that need additional provenance should read the campaign/attempt records directly or use the relational export.
-
-## Condor forensic fallback
-
-At `-vvv`, Condor campaigns also query `condor_history` using the DAGMan cluster IDs
-recorded by Yall. Historical scheduler evidence is diagnostic only and never changes
-task state. If history is unavailable, status reports that fact and continues using
-Yall's local provenance and live scheduler evidence.
-
-For each interesting Condor task, `-vvv` also identifies the original and recent
-recovery submit files, DAG/rescue files, submission record, and critical submit
-attributes such as `executable`, `arguments`, `output`, `error`, and `log`. This is
-intended to expose path/quoting/submission bugs without requiring manual file hunting.
+`--json` remains the stable machine-readable status view. Verbosity flags are for human-readable diagnostics, so `--json` and `-v` are intentionally not combined. The `-vvvv` work does not change the JSON schema.
