@@ -53,12 +53,6 @@ jobs:
               'requires-python = ">=3.9"', 'requires-python = ">=3.8"'
           ))
 
-          ci = Path(".github/workflows/tests.yml")
-          ci.write_text(ci.read_text().replace(
-              'python-version: ["3.9", "3.12"]',
-              'python-version: ["3.8", "3.9", "3.12"]',
-          ))
-
           readme = Path("README.md")
           readme.write_text(readme.read_text().replace(
               "Requires Python 3.9+.", "Requires Python 3.8+."
@@ -83,7 +77,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/prepare-python38-compat.yml
-          git add src/yall_run/worker.py tests/test_export.py pyproject.toml .github/workflows/tests.yml README.md docs/QUICKSTART.md
+          git add src/yall_run/worker.py tests/test_export.py pyproject.toml README.md docs/QUICKSTART.md
+          if git diff --cached --quiet; then
+            echo "No compatibility changes left to commit."
+            exit 0
+          fi
           git commit -m "Support Python 3.8"
           git push origin HEAD:compat/python38
