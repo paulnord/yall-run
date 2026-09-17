@@ -140,6 +140,17 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                     diagnostic["hold_reason_subcode"] = subcode
                 if ad.get("RemoveReason"):
                     diagnostic["remove_reason"] = str(ad["RemoveReason"])
+                for source, target in (
+                    ("YallDAGRetry", "dag_retry"),
+                    ("NumJobStarts", "num_job_starts"),
+                    ("GlobalJobId", "global_job_id"),
+                    ("RemoteHost", "remote_host"),
+                    ("LastRemoteHost", "last_remote_host"),
+                    ("JobStartDate", "job_start_date"),
+                    ("JobCurrentStartDate", "job_current_start_date"),
+                ):
+                    if ad.get(source) is not None:
+                        diagnostic[target] = ad.get(source)
                 if state not in _TERMINAL:
                     active[job_id] = {"state": state, "task": task, **diagnostic}
                     if task is None:
@@ -252,6 +263,15 @@ def condor_history_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                 "task": names.get(ad.get("DAGNodeName")),
                 "dagman_job_id": ad.get("DAGManJobId"),
             }
+            for source, target in (
+                ("YallDAGRetry", "dag_retry"),
+                ("NumJobStarts", "num_job_starts"),
+                ("GlobalJobId", "global_job_id"),
+                ("JobStartDate", "job_start_date"),
+                ("JobCurrentStartDate", "job_current_start_date"),
+            ):
+                if ad.get(source) is not None:
+                    item[target] = ad.get(source)
             hold_reason = ad.get("HoldReason") or ad.get("LastHoldReason")
             if hold_reason:
                 item["hold_reason"] = str(hold_reason)

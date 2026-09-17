@@ -60,12 +60,12 @@ def test_status_vvv_adds_attempt_and_provenance_history(tmp_path, monkeypatch, c
     assert "provenance:" in text
 
 
-def test_status_rejects_json_verbosity_and_more_than_three_vs(tmp_path, monkeypatch, capsys):
+def test_status_rejects_json_verbosity_and_more_than_four_vs(tmp_path, monkeypatch, capsys):
     c = _failed_local(tmp_path, monkeypatch, capsys)
     assert main(["status", str(c), "--json", "-v"]) == 2
     assert "text-only" in capsys.readouterr().err
-    assert main(["status", str(c), "-vvvv"]) == 2
-    assert "at most -vvv" in capsys.readouterr().err
+    assert main(["status", str(c), "-vvvvv"]) == 2
+    assert "at most -vvvv" in capsys.readouterr().err
 
 
 def test_verbose_status_reports_condor_hold_reason(tmp_path):
