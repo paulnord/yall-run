@@ -144,9 +144,10 @@ def _each_bindings(template: _TaskTemplate) -> Tuple[Mapping[str, str], ...]:
     names = template.each.names
     if len(set(names)) != len(names):
         raise ValueError(f"line {template.lineno}: explicit @each field names must be unique")
-    if set(names) != task_fields:
+    if not set(names).issubset(task_fields):
         raise ValueError(
-            f"line {template.lineno}: explicit @each names must match the task placeholders"
+            f"line {template.lineno}: explicit @each names must match task placeholder "
+            "names (a nonempty subset is allowed)"
         )
 
     width = len(names)
@@ -651,32 +652,61 @@ def _family_bindings(
     if template.name in visiting:
         raise ValueError(f"pattern dependency cycle involving {template.name!r}")
     visiting.add(template.name)
-    wanted = set(_fields(template.name))
+    wanted_fields = _fields(template.name)
+    wanted = set(wanted_fields)
 
     if template.each is not None:
         bindings = _each_bindings(template)
+        needs_inheritance = any(set(binding) != wanted for binding in bindings)
     elif not wanted:
         bindings = ({},)
+        needs_inheritance = False
     else:
+        bindings = ({},)
+        needs_inheritance = True
+
+    if needs_inheritance:
+        provided = set(bindings[0])
+        missing = wanted - provided
         candidate_sets: List[Tuple[Mapping[str, str], ...]] = []
         for parent_name in template.parents:
             parent = template_map.get(parent_name)
             if parent is None:
                 continue
             parent_fields = set(_fields(parent.name))
-            if not wanted.issubset(parent_fields):
+            if not missing.issubset(parent_fields):
                 continue
             family = _family_bindings(parent, template_map, cache, visiting)
             projected: List[Mapping[str, str]] = []
             seen: set[Tuple[Tuple[str, str], ...]] = set()
-            for binding in family.bindings:
-                item = {key: binding[key] for key in wanted}
-                marker = tuple(sorted(item.items()))
-                if marker not in seen:
-                    projected.append(item)
-                    seen.add(marker)
+            for seed in bindings:
+                compatible = [
+                    binding
+                    for binding in family.bindings
+                    if _compatible(binding, seed)
+                ]
+                if template.each is not None and not compatible:
+                    raise ValueError(
+                        f"line {template.lineno}: partial @each binding has no compatible "
+                        f"rows in patterned parent {parent_name!r}"
+                    )
+                for binding in compatible:
+                    item = {
+                        key: seed[key] if key in seed else binding[key]
+                        for key in wanted_fields
+                    }
+                    marker = tuple(sorted(item.items()))
+                    if marker not in seen:
+                        projected.append(item)
+                        seen.add(marker)
             candidate_sets.append(tuple(projected))
         if not candidate_sets:
+            if template.each is not None:
+                raise ValueError(
+                    f"line {template.lineno}: patterned task {template.name!r} has an "
+                    "incomplete @each binding and needs a patterned parent that supplies "
+                    "the remaining task placeholders"
+                )
             raise ValueError(
                 f"line {template.lineno}: patterned task {template.name!r} needs @each "
                 "or a patterned parent that supplies its placeholders"

@@ -298,7 +298,7 @@ A trailing backslash continues a long logical line.
 
 ## Pattern tasks with `@each`
 
-`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, supplied as correlated rows for several placeholders, or drawn from a top-level named list/table. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
+`@each` creates a family of tasks by binding placeholders in the task name. Bindings can be discovered from matching files, listed explicitly for one placeholder, supplied as correlated rows for several placeholders, or drawn from a top-level named list/table. An explicit or named-source `@each` may bind only some of the task-name placeholders when compatible patterned parents supply the rest. All forms are expanded and frozen into ordinary task definitions when the campaign is created.
 
 ### Reuse a named list or table
 
@@ -418,7 +418,7 @@ ped=328 run=329 toa=2
 ped=330 run=331 toa=2
 ```
 
-Rows are correlated. Yall does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names, the field names must match the placeholders in the task name, and duplicate rows are rejected clearly.
+Rows are correlated. Yall does **not** form a Cartesian product of pedestal, muon, and ToA values. The number of values after `:` must be an exact multiple of the number of field names. The field names must be unique placeholders from the task name, but they may be a subset when patterned parents supply the omitted placeholders. Duplicate rows are rejected clearly.
 
 A patterned child inherits the complete row normally:
 
@@ -445,6 +445,57 @@ and existing file discovery remains unchanged:
 ```
 
 After `yall-run create`, all forms have disappeared into the same concrete campaign model: `campaign.json` contains only the expanded task names, commands, inputs, outputs, dependencies, and execution policy.
+
+### Bind part of a patterned task
+
+An explicit or named-source `@each` can select one dimension while a patterned
+parent supplies the remaining task-name placeholders:
+
+```text
+@table runs type run:
+    pedestal 485
+    muon     484
+    muon     486
+
+convert-{type}-{run}:
+    @each type run in runs
+    ./convert {type} {run}
+
+{type}-{run}: convert-{type}-{run}
+    @each type pedestal
+    ./fit-pedestal {run}
+```
+
+The child binds `type=pedestal` explicitly. Its parent family is then filtered
+to rows compatible with that binding, so the only inherited value is `run=485`
+and the only child is `pedestal-485`, depending on `convert-pedestal-485`.
+The same rule applies to named data, such as `@each type in selected_types`.
+Rows are compatible when all placeholders shared with the explicit binding
+have the same values; a parent need not contain fields that were already bound.
+
+Explicit and named-source binding names must be a nonempty subset of the
+placeholders in the task name. If fields are omitted, compatible patterned
+parents must supply all of them. Each partial binding row must find a compatible
+row in every patterned parent used as a provider; otherwise expansion fails
+rather than creating an empty task family. If multiple patterned parents can
+supply the omitted fields, their compatible binding sets must agree. Fully
+specified `@each` declarations and duplicate-value or duplicate-row checks
+retain their existing behavior.
+
+Compatibility filtering also applies when the child binds all of its own
+placeholders but fans in over additional parent placeholders:
+
+```text
+merge-{type}: convert-{type}-{run}
+    @each type muon
+    @input parts work/rawHGCROC_{run}.root
+    hadd -f merged.root @input.parts
+```
+
+This creates one `merge-muon` task. It depends only on the matching `muon`
+conversions, and `@input.parts` expands `{run}` from only those parent rows.
+File-pattern discovery remains unchanged: its captured placeholders must
+exactly match the task-name placeholders.
 
 ## Patterned dependencies
 

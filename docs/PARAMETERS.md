@@ -72,14 +72,58 @@ in several distinct rows.
 `@each ped run in pairs` binds rows together. It does not form a Cartesian
 product. Binding names are positional: `@each p m in pairs` also works with a
 task named `calibrate-{p}-{m}` and binds columns in their declared order.
-The number of names must match the width of the source, and the names must match
-the task-name placeholders just as for an explicit `@each`.
+The number of names must match the width of the source. Names must be unique
+placeholders from the task name, but they may be a subset when compatible
+patterned parents supply the omitted placeholders. The same subset rule applies
+to literal explicit values.
 
 `pairs.ped` selects a column and removes repeated values, preserving the order
 of their first occurrence. In this example it gives `296 303`, so there is only
 one `pedestal-296` task. `pairs.run` gives `298 300 304`.
 Downstream patterned tasks inherit the bindings as usual; they do not need
 another `@each` or another copy of the table.
+
+## Bind selected values and inherit the rest
+
+An explicit or named-source `@each` can bind a nonempty subset of a patterned
+task's placeholders. Compatible rows from a patterned parent supply the rest:
+
+```text
+@table runs type run:
+    pedestal 485
+    muon     484
+    muon     486
+
+convert-{type}-{run}:
+    @each type run in runs
+    echo converting {type} run {run}
+
+{type}-{run}: convert-{type}-{run}
+    @each type pedestal
+    echo fitting pedestal run {run}
+```
+
+The last rule binds `type=pedestal`, filters the parent family for compatible
+rows, and inherits `run=485`. It therefore creates only `pedestal-485`, with
+`convert-pedestal-485` as its parent. A named list or table source behaves the
+same way; for example, `@list selected_types pedestal` together with
+`@each type in selected_types` can replace the literal line. Rows are compatible
+when all placeholders shared with the explicit binding have the same values; a
+parent need not contain fields that were already bound.
+
+Every `@each` binding name must be a unique placeholder in the task name. When
+some task-name placeholders are omitted, compatible patterned parents must
+supply all of them. Each partial binding row must find a compatible row in every
+patterned parent used as a provider; otherwise expansion fails. If multiple
+patterned parents can provide the omitted values, their filtered binding sets
+must agree. A fully specified `@each` behaves as before, as do duplicate-value,
+duplicate-row, and ordered-union checks.
+
+A task may also bind all of its own placeholders while retaining additional
+placeholders in a patterned parent. Parent fan-in and unresolved input paths
+use only rows compatible with the child's binding. File-pattern `@each`
+discovery is unchanged: its captured placeholders must exactly match the
+task-name placeholders.
 
 ## Combine sources in one task family
 
