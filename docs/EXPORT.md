@@ -37,7 +37,7 @@ The same natural identity used by yall is used as the relational primary key. No
 | `resume` | `campaign_id, resume_number` |
 | `resume_count` | `campaign_id, resume_number, phase, state` |
 
-The input/output indexes preserve the order of repeated JSON entries and only exist where the underlying record is one-to-many. Timing values stay on `attempt` because there is exactly one timing record per attempt. Resume state counts are separated into `resume_count` because each resume has multiple counts for two phases.
+The input/output indexes preserve the order of repeated JSON entries and only exist where the underlying record is one-to-many. Timing values stay on `attempt` because there is exactly one timing record per attempt. When available, `attempt.resource_usage_json` preserves maximum resident set size, page faults, block I/O operations, and context-switch counts reported by the host OS. Resume state counts are separated into `resume_count` because each resume has multiple counts for two phases.
 
 The export is a derived view. Campaign JSON remains the canonical computational record; exporting does not modify campaign directories.
 
@@ -110,6 +110,25 @@ pi-map-reduce-20260903T174458Z-f07e15a4       partial-000  1        completed  0
 pi-map-reduce-20260903T174458Z-f07e15a4       sum          1        completed  0.066942      starsub01.sdcc.bnl.gov
 root-muon-lifetime-20260903T174249Z-8f3f7155  fit-00       1        completed  8.558412      starsub01.sdcc.bnl.gov
 root-muon-lifetime-20260903T174249Z-8f3f7155  simulate-00  1        completed  3.053926      starsub01.sdcc.bnl.gov
+```
+
+The `attempt_provenance` table also exposes common machine fields directly,
+including `architecture`, `cpu_vendor`, `cpu_model_name`, `cpu_family`,
+`cpu_model`, `cpu_stepping`, and `affinity_count`. Complete host and
+scheduler snapshots remain available in the JSON columns.
+
+For example, runtimes can be grouped by CPU model without separately querying
+the batch system:
+
+```bash
+sqlite3 -header -column yall.sqlite \
+'select cpu_vendor,cpu_model_name,count(*) as attempts,
+        round(avg(real_seconds),3) as avg_seconds
+ from attempt
+ join attempt_provenance using (campaign_id,task_name,attempt)
+ where state = "completed"
+ group by cpu_vendor,cpu_model_name
+ order by cpu_vendor,cpu_model_name;'
 ```
 
 ### Find failed attempts
