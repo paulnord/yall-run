@@ -35,7 +35,9 @@ Each task attempt has two distinct records:
 - resolved inputs
 - declared outputs
 - requested resources
-- execution host
+- execution host, kernel, architecture, CPU identity, and CPU affinity
+- selected runtime environment values that can affect threading or numerical execution
+- common POSIX resource limits
 - host Python version and interpreter path
 - archived payload wrapper identity and planned launch argv
 - start time
@@ -48,7 +50,7 @@ This separation means the launch conditions remain intact even if the task later
 
 - return code
 - finish time
-- timing information
+- timing information and child-process resource usage when available
 - stdout and stderr locations
 - observed output metadata
 
@@ -101,8 +103,21 @@ before that planned invocation is executed. Final attempts also record
 (the wrapper when present), not necessarily the final application process. Timing includes
 wrapper setup and payload execution, not queue wait.
 
-This does not probe or assert the payload's Python, OS or container digest.
-Creation-time executable lookup is explicitly labeled `context = "creation_host"`;
+For Condor attempts, yall also records an allowlisted snapshot of
+`_CONDOR_MACHINE_AD` when HTCondor provides it, including slot identity,
+architecture, CPU family/model, assigned CPUs, and memory. The raw machine ad is
+not copied into provenance; its SHA-256 is recorded alongside the parsed fields.
+
+The runtime environment snapshot is deliberately allowlisted rather than a dump
+of the full environment. It covers common thread-control, accelerator-selection,
+locale, and allocator/runtime variables. These values describe the **host
+worker** environment. A wrapper can still change the payload environment, and
+its frozen argv remains the authoritative record of such explicit wrapper
+settings.
+
+This does not probe or assert the payload's Python, OS, compiler, libraries, or
+container digest. Creation-time executable lookup is explicitly labeled
+`context = "creation_host"`;
 a host PATH candidate/hash is not proof of the binary selected inside a wrapper.
 Record application/container identity in the application layer when needed.
 The complete wrapper/launch details are in canonical JSON; existing relational
