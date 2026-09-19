@@ -5,6 +5,7 @@ import os
 
 from yall_run import worker
 from yall_run.campaign import create_campaign
+from yall_run.condor_backend import render_condor
 from yall_run.model import load_spec
 
 
@@ -141,3 +142,42 @@ def test_attempt_provenance_records_runtime_context(tmp_path, monkeypatch):
         assert usage["max_rss"] >= 0
         assert usage["minor_page_faults"] >= 0
         assert usage["voluntary_context_switches"] >= 0
+
+
+def test_condor_attempt_embeds_machine_snapshot(tmp_path, monkeypatch):
+    yallfile = tmp_path / "Yallfile"
+    yallfile.write_text(
+        "campaign condor-runtime-provenance\n"
+        "backend condor\n\n"
+        "one:\n"
+        "    /bin/true\n"
+    )
+    campaign_dir = render_condor(load_spec(yallfile), tmp_path / "campaigns")
+
+    job_ad = tmp_path / "job.ad"
+    job_ad.write_text(
+        'ClusterId = 77\n'
+        'ProcId = 2\n'
+        'QDate = 1789850000\n'
+    )
+    machine_ad = tmp_path / "machine.ad"
+    machine_ad.write_text(
+        'Machine = "worker.example.org"\n'
+        'CpuFamily = 23\n'
+        'CpuModelNumber = 1\n'
+        'Cpus = 1\n'
+        'Memory = 2048\n'
+    )
+    monkeypatch.setenv("_CONDOR_JOB_AD", str(job_ad))
+    monkeypatch.setenv("_CONDOR_MACHINE_AD", str(machine_ad))
+
+    assert worker.run_task(campaign_dir, "one") == 0
+    provenance = json.loads(
+        (campaign_dir / "one_attempt_001/provenance.json").read_text()
+    )
+
+    assert provenance["scheduler"]["job_id"] == "77.2"
+    assert provenance["scheduler"]["qdate"] == 1789850000
+    assert provenance["scheduler"]["machine"]["machine"] == "worker.example.org"
+    assert provenance["scheduler"]["machine"]["cpu_family"] == 23
+    assert provenance["scheduler"]["machine"]["cpu_model_number"] == 1
