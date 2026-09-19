@@ -106,10 +106,12 @@ def test_export_writes_queryable_sqlite_and_csv(tmp_path, monkeypatch):
             "SELECT state, attempt FROM attempt WHERE campaign_id = ? ORDER BY task_name",
             (campaign_id,),
         ).fetchall() == [("completed", 1), ("completed", 1)]
-        assert db.execute(
-            "SELECT hostname FROM attempt_provenance WHERE campaign_id = ?",
+        provenance_row = db.execute(
+            "SELECT hostname,machine_json FROM attempt_provenance WHERE campaign_id = ?",
             (campaign_id,),
-        ).fetchone()[0]
+        ).fetchone()
+        assert provenance_row[0]
+        assert isinstance(json.loads(provenance_row[1]), dict)
 
     with (csv_dir / "task.csv").open(newline="") as handle:
         task_rows = list(csv.DictReader(handle))
