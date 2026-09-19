@@ -133,6 +133,7 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("real_seconds", "REAL"),
         ("user_seconds", "REAL"),
         ("sys_seconds", "REAL"),
+        ("resource_usage_json", "TEXT"),
         ("PRIMARY KEY (campaign_id, task_name, attempt)", ""),
         ("FOREIGN KEY (campaign_id, task_name) REFERENCES task(campaign_id, task_name)", ""),
     ),
@@ -170,6 +171,20 @@ TABLES: dict[str, tuple[tuple[str, str], ...]] = {
         ("attempt", "INTEGER NOT NULL"),
         ("hostname", "TEXT"),
         ("platform", "TEXT"),
+        ("architecture", "TEXT"),
+        ("cpu_vendor", "TEXT"),
+        ("cpu_model_name", "TEXT"),
+        ("cpu_family", "INTEGER"),
+        ("cpu_model", "INTEGER"),
+        ("cpu_stepping", "INTEGER"),
+        ("affinity_count", "INTEGER"),
+        ("machine_json", "TEXT"),
+        ("environment_json", "TEXT"),
+        ("resource_limits_json", "TEXT"),
+        ("scheduler_json", "TEXT"),
+        ("scheduler_machine", "TEXT"),
+        ("scheduler_cpu_family", "INTEGER"),
+        ("scheduler_cpu_model_number", "INTEGER"),
         ("python", "TEXT"),
         ("worker_pid", "INTEGER"),
         ("campaign_overwrite", "INTEGER"),
@@ -504,6 +519,7 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
             "real_seconds": timing.get("real_seconds"),
             "user_seconds": timing.get("user_seconds"),
             "sys_seconds": timing.get("sys_seconds"),
+            "resource_usage_json": _json(timing.get("resource_usage")),
         })
         _append_file_rows(
             rows, "attempt_input", campaign_id, task_name, number,
@@ -518,12 +534,31 @@ def scrape_campaign(campaign_dir: str | Path) -> dict[str, list[dict[str, Any]]]
             provenance = _read_json(provenance_path)
             execution = provenance.get("execution") or {}
             ptask = provenance.get("task") or {}
+            machine = execution.get("machine") or {}
+            cpu = machine.get("cpu") or {}
+            affinity = machine.get("affinity") or {}
+            scheduler = provenance.get("scheduler") or {}
+            scheduler_machine = scheduler.get("machine") or {}
             rows["attempt_provenance"].append({
                 "campaign_id": campaign_id,
                 "task_name": task_name,
                 "attempt": number,
                 "hostname": execution.get("hostname"),
                 "platform": execution.get("platform"),
+                "architecture": machine.get("architecture"),
+                "cpu_vendor": cpu.get("vendor_id", cpu.get("implementer")),
+                "cpu_model_name": cpu.get("model_name"),
+                "cpu_family": cpu.get("family"),
+                "cpu_model": cpu.get("model"),
+                "cpu_stepping": cpu.get("stepping"),
+                "affinity_count": affinity.get("count"),
+                "machine_json": _json(machine),
+                "environment_json": _json(execution.get("environment")),
+                "resource_limits_json": _json(execution.get("resource_limits")),
+                "scheduler_json": _json(scheduler),
+                "scheduler_machine": scheduler_machine.get("machine"),
+                "scheduler_cpu_family": scheduler_machine.get("cpu_family"),
+                "scheduler_cpu_model_number": scheduler_machine.get("cpu_model_number"),
                 "python": execution.get("python"),
                 "worker_pid": execution.get("worker_pid", execution.get("pid")),
                 "campaign_overwrite": _bool(execution.get("campaign_overwrite")),
@@ -600,11 +635,33 @@ def write_sqlite(path: str | Path, rows: dict[str, list[dict[str, Any]]]) -> Pat
         columns = {row[1] for row in db.execute("PRAGMA table_info(task)")}
         if "walltime_seconds" not in columns:
             db.execute("ALTER TABLE task ADD COLUMN walltime_seconds INTEGER")
+        attempt_columns = {row[1] for row in db.execute("PRAGMA table_info(attempt)")}
+        if "resource_usage_json" not in attempt_columns:
+            db.execute("ALTER TABLE attempt ADD COLUMN resource_usage_json TEXT")
         provenance_columns = {
             row[1] for row in db.execute("PRAGMA table_info(attempt_provenance)")
         }
-        if "amendments_json" not in provenance_columns:
-            db.execute("ALTER TABLE attempt_provenance ADD COLUMN amendments_json TEXT")
+        for column, declaration in (
+            ("architecture", "TEXT"),
+            ("cpu_vendor", "TEXT"),
+            ("cpu_model_name", "TEXT"),
+            ("cpu_family", "INTEGER"),
+            ("cpu_model", "INTEGER"),
+            ("cpu_stepping", "INTEGER"),
+            ("affinity_count", "INTEGER"),
+            ("machine_json", "TEXT"),
+            ("environment_json", "TEXT"),
+            ("resource_limits_json", "TEXT"),
+            ("scheduler_json", "TEXT"),
+            ("scheduler_machine", "TEXT"),
+            ("scheduler_cpu_family", "INTEGER"),
+            ("scheduler_cpu_model_number", "INTEGER"),
+            ("amendments_json", "TEXT"),
+        ):
+            if column not in provenance_columns:
+                db.execute(
+                    f"ALTER TABLE attempt_provenance ADD COLUMN {column} {declaration}"
+                )
         resume_columns = {row[1] for row in db.execute("PRAGMA table_info(resume)")}
         if "reason" not in resume_columns:
             db.execute("ALTER TABLE resume ADD COLUMN reason TEXT")

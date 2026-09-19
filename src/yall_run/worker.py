@@ -36,6 +36,29 @@ def _read_json(path: Path) -> Any:
 # The worker is bundled as a standalone file. Do not depend on ClassAd bindings.
 # Only accept literal identity fields; never evaluate ClassAd expressions here.
 _CONDOR_JOB_AD_MAX_BYTES = 1024 * 1024
+_CONDOR_MACHINE_AD_MAX_BYTES = 1024 * 1024
+
+_RUNTIME_ENV_KEYS = (
+    "OMP_NUM_THREADS",
+    "OMP_THREAD_LIMIT",
+    "OMP_PROC_BIND",
+    "OMP_PLACES",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "ROOT_MAX_THREADS",
+    "TBB_NUM_THREADS",
+    "CUDA_VISIBLE_DEVICES",
+    "HIP_VISIBLE_DEVICES",
+    "ROCR_VISIBLE_DEVICES",
+    "LD_PRELOAD",
+    "GLIBC_TUNABLES",
+    "MALLOC_ARENA_MAX",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+)
 
 
 def _classad_scalar(value: str) -> Any:
@@ -86,6 +109,7 @@ def _condor_job_context() -> dict[str, Any] | None:
         "lastremotehost": ("last_remote_host", str),
         "jobstartdate": ("job_start_date", int),
         "jobcurrentstartdate": ("job_current_start_date", int),
+        "qdate": ("qdate", int),
     }
     seen: set[str] = set()
     errors: dict[str, str] = {}
@@ -111,6 +135,190 @@ def _condor_job_context() -> dict[str, Any] | None:
         result["parse_errors"] = errors
     if "cluster_id" in result and "proc_id" in result:
         result["job_id"] = f"{result['cluster_id']}.{result['proc_id']}"
+    return result
+
+
+
+def _condor_machine_context() -> dict[str, Any] | None:
+    """Read a bounded, allowlisted execution-slot snapshot from HTCondor."""
+    value = os.environ.get("_CONDOR_MACHINE_AD")
+    if not value:
+        return None
+    path = Path(value)
+    result: dict[str, Any] = {"machine_ad_path": str(path)}
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("machine ad is not a regular file")
+            raw = source.read(_CONDOR_MACHINE_AD_MAX_BYTES + 1)
+            if len(raw) > _CONDOR_MACHINE_AD_MAX_BYTES:
+                raise ValueError("machine ad exceeds the 1 MiB diagnostic limit")
+    except (OSError, ValueError) as exc:
+        result["read_error"] = str(exc)
+        return result
+
+    result["machine_ad_sha256"] = hashlib.sha256(raw).hexdigest()
+    wanted = {
+        "name": ("name", str),
+        "machine": ("machine", str),
+        "slotid": ("slot_id", int),
+        "slottypeid": ("slot_type_id", int),
+        "arch": ("arch", str),
+        "opsys": ("opsys", str),
+        "opsysandver": ("opsys_and_ver", str),
+        "cpufamily": ("cpu_family", int),
+        "cpumodelnumber": ("cpu_model_number", int),
+        "cpucachesize": ("cpu_cache_size", int),
+        "cpus": ("cpus", int),
+        "detectedcpus": ("detected_cpus", int),
+        "totalslotcpus": ("total_slot_cpus", int),
+        "memory": ("memory_mb", int),
+        "detectedmemory": ("detected_memory_mb", int),
+        "totalmemory": ("total_memory_mb", int),
+    }
+    seen: set[str] = set()
+    errors: dict[str, str] = {}
+    for line in raw.decode(errors="replace").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        name, raw_value = line.split("=", 1)
+        field = wanted.get(name.strip().lower())
+        if field is None:
+            continue
+        target, expected = field
+        if target in seen:
+            result.pop(target, None)
+            errors[target] = "duplicate attribute"
+            continue
+        seen.add(target)
+        parsed = _classad_scalar(raw_value)
+        if type(parsed) is not expected or (expected is str and not parsed):
+            errors[target] = "not a supported literal of the expected type"
+        else:
+            result[target] = parsed
+    if errors:
+        result["parse_errors"] = errors
+    return result
+
+
+def _parse_linux_cpuinfo(text: str) -> dict[str, Any]:
+    """Extract stable CPU identity fields from the first /proc/cpuinfo record."""
+    first: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            if first:
+                break
+            continue
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        first[key.strip().lower()] = value.strip()
+
+    result: dict[str, Any] = {}
+    aliases = {
+        "vendor_id": "vendor_id",
+        "model name": "model_name",
+        "microcode": "microcode",
+        "cpu implementer": "implementer",
+        "cpu variant": "variant",
+        "cpu part": "part",
+        "cpu revision": "revision",
+        "hardware": "hardware",
+    }
+    for source, target in aliases.items():
+        value = first.get(source)
+        if value:
+            result[target] = value
+
+    for source, target in (
+        ("cpu family", "family"),
+        ("model", "model"),
+        ("stepping", "stepping"),
+        ("cpu architecture", "architecture"),
+    ):
+        value = first.get(source)
+        if value is None:
+            continue
+        try:
+            result[target] = int(value, 10)
+        except ValueError:
+            result[target] = value
+
+    features = first.get("flags") or first.get("features")
+    if features:
+        result["features"] = features.split()
+    return result
+
+
+def _host_machine_context() -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "architecture": platform.machine(),
+        "logical_cpu_count": os.cpu_count(),
+    }
+    uname = platform.uname()
+    result["system"] = uname.system
+    result["kernel_release"] = uname.release
+    result["kernel_version"] = uname.version
+
+    affinity = getattr(os, "sched_getaffinity", None)
+    if affinity is not None:
+        try:
+            cpus = sorted(int(value) for value in affinity(0))
+            result["affinity"] = {"count": len(cpus), "cpus": cpus}
+        except OSError as exc:
+            result["affinity_error"] = str(exc)
+
+    cpuinfo = Path("/proc/cpuinfo")
+    try:
+        cpu = _parse_linux_cpuinfo(cpuinfo.read_text(errors="replace"))
+    except OSError as exc:
+        result["cpuinfo_error"] = str(exc)
+    else:
+        if cpu:
+            result["cpu"] = cpu
+    return result
+
+
+def _runtime_environment() -> dict[str, str]:
+    """Capture a small allowlist of environment settings that can affect execution."""
+    return {name: os.environ[name] for name in _RUNTIME_ENV_KEYS if name in os.environ}
+
+
+def _resource_limits() -> dict[str, dict[str, int | str]]:
+    """Capture common POSIX resource limits without making provenance fatal."""
+    try:
+        import resource
+    except ImportError:
+        return {}
+
+    result: dict[str, dict[str, int | str]] = {}
+    for name in (
+        "RLIMIT_AS",
+        "RLIMIT_CORE",
+        "RLIMIT_CPU",
+        "RLIMIT_DATA",
+        "RLIMIT_FSIZE",
+        "RLIMIT_MEMLOCK",
+        "RLIMIT_NOFILE",
+        "RLIMIT_NPROC",
+        "RLIMIT_STACK",
+    ):
+        key = getattr(resource, name, None)
+        if key is None:
+            continue
+        try:
+            soft, hard = resource.getrlimit(key)
+        except (OSError, ValueError):
+            continue
+
+        def normalize(value: int) -> int | str:
+            return "infinity" if value == resource.RLIM_INFINITY else int(value)
+
+        result[name[len("RLIMIT_"):].lower()] = {
+            "soft": normalize(soft),
+            "hard": normalize(hard),
+        }
     return result
 
 
@@ -314,7 +522,7 @@ def _run_command(
     stdout: Any,
     stderr: Any,
     env: dict[str, str],
-) -> tuple[int, dict[str, float | None], int]:
+) -> tuple[int, dict[str, Any], int]:
     started = time.monotonic()
     proc = subprocess.Popen(
         command,
@@ -329,6 +537,7 @@ def _run_command(
 
     user_seconds: float | None = None
     sys_seconds: float | None = None
+    resource_usage: dict[str, Any] | None = None
     if hasattr(os, "wait4"):
         while True:
             try:
@@ -339,6 +548,21 @@ def _run_command(
         proc.returncode = _waitstatus_to_exitcode(status)
         user_seconds = float(usage.ru_utime)
         sys_seconds = float(usage.ru_stime)
+        max_rss_unit = (
+            "KiB" if sys.platform.startswith("linux")
+            else "bytes" if sys.platform == "darwin"
+            else "platform_units"
+        )
+        resource_usage = {
+            "max_rss": int(usage.ru_maxrss),
+            "max_rss_unit": max_rss_unit,
+            "minor_page_faults": int(usage.ru_minflt),
+            "major_page_faults": int(usage.ru_majflt),
+            "block_input_operations": int(usage.ru_inblock),
+            "block_output_operations": int(usage.ru_oublock),
+            "voluntary_context_switches": int(usage.ru_nvcsw),
+            "involuntary_context_switches": int(usage.ru_nivcsw),
+        }
     else:
         proc.wait()
 
@@ -346,6 +570,7 @@ def _run_command(
         "real_seconds": time.monotonic() - started,
         "user_seconds": user_seconds,
         "sys_seconds": sys_seconds,
+        "resource_usage": resource_usage,
     }
     return int(proc.returncode), timing, launch_pid
 
@@ -383,9 +608,13 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     scheduler_context = (
         _condor_job_context() if manifest.get("backend") == "condor" else None
     )
+    if scheduler_context is not None:
+        scheduler_machine = _condor_machine_context()
+        if scheduler_machine is not None:
+            scheduler_context["machine"] = scheduler_machine
 
     launch_provenance = {
-        "schema": 1,
+        "schema": 2,
         "campaign": {
             "id": manifest.get("id"),
             "name": manifest.get("name"),
@@ -414,6 +643,9 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "started_at": started,
             "hostname": platform.node(),
             "platform": platform.platform(),
+            "machine": _host_machine_context(),
+            "environment": _runtime_environment(),
+            "resource_limits": _resource_limits(),
             "python": sys.version,
             "python_executable": sys.executable,
             "pid": worker_pid,
@@ -550,7 +782,12 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             launch_error = exc
             command_returncode = None
             launch_pid = None
-            timing = {"real_seconds": None, "user_seconds": None, "sys_seconds": None}
+            timing = {
+                "real_seconds": None,
+                "user_seconds": None,
+                "sys_seconds": None,
+                "resource_usage": None,
+            }
             err.write(f"yall-worker: launch failed: {exc}\n")
 
     finished = _utc_now()
