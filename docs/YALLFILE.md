@@ -218,6 +218,9 @@ retries, and `resume` never repeat them; `amend` rejects changes to their
 commands or working directory. Recipes without `%preflight` keep their
 existing behavior.
 
+Existing Yallfiles need no migration. Before adding `%preflight` to a recipe,
+update Yall on the host running `create`; older versions reject the new directive.
+
 Use preflights for directory setup and inexpensive input checks. They run only
 after parsing and task expansion, so they cannot create files needed for
 file-pattern `@each` discovery in the same creation. Host checks do not prove
