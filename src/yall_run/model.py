@@ -84,6 +84,7 @@ class CampaignSpec:
     condor: CondorSpec = CondorSpec()
     execution: ExecutionSpec = ExecutionSpec()
     set_values: Tuple[Tuple[str, str], ...] = ()
+    preflight: Tuple[Command, ...] = ()
 
 
 def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None:

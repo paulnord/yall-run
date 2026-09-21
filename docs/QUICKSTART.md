@@ -47,7 +47,10 @@ yall-run plan
 yall-run create
 ```
 
-`create` freezes the expanded workflow into a new campaign directory under `./campaigns` and prints that directory. It does not run anything.
+`create` freezes the expanded workflow into a new campaign directory under
+`./campaigns` and prints that directory. It runs no graph tasks. If the recipe
+declares [host setup commands with `%preflight`](YALLFILE.md#host-setup-preflight),
+those run locally during creation, before the campaign becomes launchable.
 
 To place new campaigns somewhere else:
 

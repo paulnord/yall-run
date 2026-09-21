@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add repeatable campaign-level `%preflight` commands for host setup during
+  `create`, with ordered execution, per-command logs and results, and failure
+  blocking campaign creation. Validation and planning never execute them.
+- Keep setup outside payload wrappers and scheduler graphs, preserve the
+  campaign-path-only stdout interface, and prevent setup reruns or amendments.
+
 ## 0.11.0a1
 
 - Explicit and named-source `@each` bindings may bind a subset of task-name

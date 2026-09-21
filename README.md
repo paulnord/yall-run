@@ -67,6 +67,11 @@ yall-run create | yall-run start
 
 `create` freezes a new campaign and prints its directory. `start` runs that exact campaign. Creating another run means creating another campaign.
 
+For lightweight host setup before submission, declare repeatable
+[`%preflight` commands](docs/YALLFILE.md#host-setup-preflight) before the tasks,
+for example `%preflight python3 prepare_host.py`. They run during `create`,
+outside the payload wrapper, and stop creation on failure without adding jobs.
+
 For a local workflow with up to four dependency-ready tasks running at once:
 
 ```bash

@@ -27,7 +27,12 @@ By default, yall-run creates a new campaign directory under `./campaigns` and pr
 yall-run create --campaigns-dir /path/to/campaigns
 ```
 
-`create` freezes the expanded task graph, backend choice, task policy, named data, and campaign creation information. It does not execute or submit the campaign.
+`create` freezes the expanded task graph, backend choice, task policy, named
+data, and campaign creation information. It executes any explicit
+[`%preflight` host setup commands](YALLFILE.md#host-setup-preflight), but does
+not execute or submit graph tasks. Setup failure leaves diagnostics without a
+launchable campaign; successful setup is recorded and never repeated by start
+or recovery.
 
 Start the exact campaign later:
 

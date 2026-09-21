@@ -8,7 +8,7 @@ import re
 import shlex
 from typing import Dict, List, Mapping, Sequence, Tuple
 
-from .model import CampaignSpec, CondorSpec, DEFAULT_STARTUP_RETRIES, ExecutionSpec, FileRef, ResourceSpec, TaskSpec, _validate_graph
+from .model import CampaignSpec, Command, CondorSpec, DEFAULT_STARTUP_RETRIES, ExecutionSpec, FileRef, ResourceSpec, TaskSpec, _validate_graph
 from .walltime import parse_walltime
 
 _FIELD_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -353,7 +353,35 @@ def _resolve_parameter_sets(
         each.values = [value for row in combined for value in row]
 
 
-def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTemplate]]:
+def _preflight_command(text: str, variables: Mapping[str, str], lineno: int) -> Command:
+    context = f"line {lineno}: %preflight"
+    shell = text.startswith("!")
+    if shell:
+        # Explicit shell commands use the same textual substitution as tasks.
+        # Quoting and other shell syntax are the author's responsibility.
+        command: Command = _format(text[1:].lstrip(), variables, context)
+        tokens = (command,)
+    else:
+        # Split before substitution so imported arguments stay single tokens,
+        # even when they contain spaces, quotes, or shell metacharacters.
+        command = tuple(_format(token, variables, context)
+                        for token in _parameter_tokens(text, lineno))
+        tokens = command
+    if not tokens or not tokens[0].strip():
+        raise ValueError(f"{context} needs a nonempty command")
+    for token in tokens:
+        if "\0" in token:
+            raise ValueError(f"{context} may not contain NUL characters")
+        missing = _fields(token)
+        if missing:
+            raise ValueError(f"{context}: no value for {{{missing[0]}}}")
+        if _SHELL_REF_RE.search(token):
+            raise ValueError(f"{context} may not reference task inputs or outputs")
+    return command
+
+
+def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
+                               Tuple[Command, ...], List[_TaskTemplate]]:
     campaign_name: str | None = None
     backend = "local"
     condor_cpus = 1
@@ -364,6 +392,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
     payload_wrapper: str | None = None
     payload_wrapper_args: Tuple[str, ...] = ()
     wrapper_lineno = 0
+    preflight_templates: List[Tuple[int, str]] = []
     tasks: List[_TaskTemplate] = []
     variables: Dict[str, str] = {}
     parameters: Dict[str, _Parameters] = {}
@@ -379,6 +408,11 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
         if not indented:
             current = None
             table = None
+            if stripped.split()[0] == "%preflight":
+                if tasks:
+                    raise ValueError(f"line {lineno}: %preflight must appear before tasks")
+                preflight_templates.append((lineno, stripped[len("%preflight"):].lstrip()))
+                continue
             if stripped.split()[0] in {"@list", "@table"}:
                 directive = stripped.split()[0]
                 if tasks:
@@ -638,7 +672,9 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, List[_TaskTe
         getenv=condor_getenv,
     )
     execution = ExecutionSpec(wrapper=payload_wrapper, wrapper_args=payload_wrapper_args)
-    return campaign_name, backend, condor, execution, tasks
+    preflight = tuple(_preflight_command(text, variables, lineno)
+                      for lineno, text in preflight_templates)
+    return campaign_name, backend, condor, execution, preflight, tasks
 
 
 def _family_bindings(
@@ -923,7 +959,7 @@ def _instantiate(
 
 
 def load_yall_spec(source: Path) -> CampaignSpec:
-    campaign_name, backend, condor, execution, templates = _parse(source.read_text())
+    campaign_name, backend, condor, execution, preflight, templates = _parse(source.read_text())
     template_map: Dict[str, _TaskTemplate] = {}
     for template in templates:
         if template.name in template_map:
@@ -947,4 +983,5 @@ def load_yall_spec(source: Path) -> CampaignSpec:
         backend=backend,
         condor=condor,
         execution=execution,
+        preflight=preflight,
     )
