@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0a1
 
 - Add repeatable campaign-level `%preflight` commands for host setup during
   `create`, with ordered execution, per-command logs and results, and failure
