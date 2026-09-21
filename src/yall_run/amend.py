@@ -178,6 +178,22 @@ def _validate_wrapper(spec: CampaignSpec, manifest: dict[str, Any]) -> None:
         raise ValueError("current Yallfile changes the frozen payload wrapper")
 
 
+def _validate_preflight(spec: CampaignSpec, manifest: dict[str, Any]) -> None:
+    frozen = [
+        {"command": record.get("command"), "cwd": record.get("cwd")}
+        for record in manifest.get("preflight", [])
+    ]
+    current = [
+        {"command": _normalized_command(command), "cwd": str(spec.source.parent)}
+        for command in spec.preflight
+    ]
+    if current != frozen:
+        raise ValueError(
+            "current Yallfile changes frozen preflight commands or working directory; "
+            "preflight runs only during creation; create a new campaign"
+        )
+
+
 def _validate_backend_defaults(
     campaign_dir: Path,
     spec: CampaignSpec,
@@ -298,6 +314,7 @@ def amend_campaign(
             f"current Yallfile backend {spec.backend!r} does not match frozen backend {backend!r}"
         )
     _validate_wrapper(spec, manifest)
+    _validate_preflight(spec, manifest)
     _validate_backend_defaults(campaign_dir, spec, backend)
 
     frozen_tasks = manifest["tasks"]

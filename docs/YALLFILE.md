@@ -34,7 +34,10 @@ yall-run create
 
 `Yallfile` is the canonical default spelling. On a case-sensitive filesystem, `yallfile` and `YALLFILE` are different filenames. A differently named workflow file can be supplied explicitly.
 
-`create` freezes the expanded task graph into a new campaign directory and runs nothing. By default, new campaign directories are created under `./campaigns`. Choose another container directory with:
+`create` freezes the expanded task graph into a new campaign directory. It runs
+any explicitly declared `%preflight` commands on the creation host, but does not
+run or submit graph tasks. By default, new campaign directories are created under
+`./campaigns`. Choose another container directory with:
 
 ```bash
 yall-run create --campaigns-dir /path/to/campaigns
@@ -161,7 +164,67 @@ backend condor
 %time 2h
 ```
 
-Other campaign-level directives currently supported are `%getenv` and `%wrapper`.
+Other campaign-level directives are `%getenv`, `%wrapper`, and `%preflight`.
+
+### Host setup: `%preflight`
+
+Put repeatable `%preflight` commands before the first task to perform lightweight
+setup during `yall-run create`, without adding scheduler jobs:
+
+```text
+campaign analysis
+backend condor
+@env WORK
+
+%preflight python3 check_inputs.py
+%preflight mkdir -p "{WORK}/results"
+
+analyze:
+    @output result "{WORK}/results/summary.txt"
+    python3 analyze.py @output.result
+```
+
+`validate` checks the declarations and `plan` shows the ordered commands without
+running them. `plan --json` includes a separate `preflight` list; `plan --dot`
+contains only graph tasks. `create` executes preflights in source order, on its
+own host, with the Yallfile's directory as the working directory. They inherit
+the creation process's environment, bypass `%wrapper`, and receive no stdin.
+For a container workflow, this means setup runs outside the container.
+
+Ordinary commands are argv arrays. `{NAME}` placeholders use resolved `@set`
+and `@env` values; a substituted argument stays one argument even if it contains
+spaces. For explicit Bash syntax, use `%preflight ! COMMAND`, with the same
+textual substitution and shell-quoting responsibility as a task's `!` command.
+Task references such as `@input.data`, `@outputs`, and `@each` bindings are not
+available in preflights. Separate commands do not share shell variables or
+changes of working directory.
+
+Each command has `stdout.log`, `stderr.log`, and `result.json` under
+`preflight/001/`, `preflight/002/`, and so on. Records include the resolved
+command, working directory, hostname, timestamps, outcome, and exit code.
+After each command finishes, its stdout and stderr are also sent to Yall's
+stderr. Successful creation still prints only the campaign path to stdout,
+so command substitution and `create | start` keep working.
+
+Creation stops on the first failed command. Later commands do not run, no
+campaign path is printed, and no launchable `campaign.json` is written. The
+source archive and diagnostics remain at the path reported on stderr. An
+interrupted creation also remains unlaunchable. Setup side effects are not
+rolled back: inspect them before creating another campaign, and prefer
+idempotent commands such as `mkdir -p` where appropriate.
+
+Successful preflight results are frozen in `campaign.json`. `start`, task
+retries, and `resume` never repeat them; `amend` rejects changes to their
+commands or working directory. Recipes without `%preflight` keep their
+existing behavior.
+
+Use preflights for directory setup and inexpensive input checks. They run only
+after parsing and task expansion, so they cannot create files needed for
+file-pattern `@each` discovery in the same creation. Host checks do not prove
+worker-node or container access. Leave substantial computation, including large
+data merges, in ordinary tasks. Create output parent directories rather than
+declared output files or output directories: the normal start-time output guard
+still applies.
 
 ### Execution wrappers
 

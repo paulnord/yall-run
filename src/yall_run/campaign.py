@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import subprocess
 import sys
 import time
 from typing import Any
@@ -361,6 +362,59 @@ def normalized_task_definition(
     return record
 
 
+def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any]]:
+    """Run host setup before a launchable campaign manifest exists."""
+    records = []
+    for index, command in enumerate(spec.preflight, 1):
+        directory = campaign_dir / "preflight" / f"{index:03d}"
+        directory.mkdir(parents=True)
+        stdout_path = directory / "stdout.log"
+        stderr_path = directory / "stderr.log"
+        record = {
+            "command": command if isinstance(command, str) else list(command),
+            "cwd": str(spec.source.parent),
+            "hostname": platform.node(),
+            "state": "running",
+            "started_at": _utc_now(),
+            "returncode": None,
+            "stdout": str(stdout_path.relative_to(campaign_dir)),
+            "stderr": str(stderr_path.relative_to(campaign_dir)),
+        }
+        _write_json(directory / "result.json", record)
+        print(f"[preflight {index}] logs: {directory}", file=sys.stderr, flush=True)
+        launch = ["/bin/bash", "-c", command] if isinstance(command, str) else list(command)
+        try:
+            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                completed = subprocess.run(
+                    launch, cwd=spec.source.parent, stdin=subprocess.DEVNULL,
+                    stdout=stdout, stderr=stderr, check=False,
+                )
+            record["returncode"] = completed.returncode
+            record["state"] = "completed" if completed.returncode == 0 else "failed"
+        except OSError as exc:
+            record["state"] = "failed"
+            record["error"] = str(exc)
+        except KeyboardInterrupt:
+            record["state"] = "interrupted"
+            raise
+        finally:
+            record["finished_at"] = _utc_now()
+            _write_json(directory / "result.json", record)
+            # Keep create's stdout machine-readable, including when piped to start.
+            for path in (stdout_path, stderr_path):
+                if path.is_file():
+                    with path.open(encoding="utf-8", errors="replace") as stream:
+                        shutil.copyfileobj(stream, sys.stderr)
+        records.append(record)
+        if record["state"] != "completed":
+            detail = record.get("error", f"exit {record['returncode']}")
+            raise ValueError(
+                f"preflight {index} failed ({detail}); campaign was not created; "
+                f"diagnostics retained at {campaign_dir}"
+            )
+    return records
+
+
 def create_campaign(
     spec: CampaignSpec,
     root: str | Path,
@@ -391,6 +445,7 @@ def create_campaign(
     launch_cwd = logical_cwd()
     created_at = _utc_now()
     workflow_cwd = spec.source.parent
+    preflight = _run_preflight(spec, campaign_dir)
     wrapper = archive_wrapper(spec, campaign_dir)
     if wrapper is not None:
         execution["wrapper"] = wrapper
@@ -438,7 +493,8 @@ def create_campaign(
             "argv": list(sys.argv),
         },
     }
-    _write_json(campaign_dir / "campaign.json", manifest)
+    if preflight:
+        manifest["preflight"] = preflight
 
     for task in spec.tasks:
         _write_json(_state_path(campaign_dir, task.name), {
@@ -446,6 +502,9 @@ def create_campaign(
             "attempts": 0,
         })
 
+    # Publishing the manifest makes the campaign launchable. Failed/interrupted
+    # preflight leaves only the source archive and diagnostics, never this file.
+    _write_json(campaign_dir / "campaign.json", manifest)
     return campaign_dir
 
 

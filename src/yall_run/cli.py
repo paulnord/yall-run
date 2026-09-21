@@ -220,6 +220,11 @@ def _plan_json(spec: object) -> dict[str, object]:
         "backend": spec.backend,
         "source": str(spec.source),
         "execution": asdict(spec.execution),
+        "preflight": [
+            {"command": command if isinstance(command, str) else list(command),
+             "cwd": str(spec.source.parent)}
+            for command in spec.preflight
+        ],
         "tasks": tasks,
     }
 
@@ -271,6 +276,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(_plan_dot(spec))
                 return 0
             print(f"Campaign: {spec.name} (backend={spec.backend})")
+            if spec.preflight:
+                print(f"Host preflight (during create, cwd={spec.source.parent}):")
+                for index, command in enumerate(spec.preflight, 1):
+                    prefix = "! " if isinstance(command, str) else ""
+                    print(f"  {index}: {prefix}{_display_command(command)}")
             if spec.execution.wrapper:
                 wrapper = shlex.join([spec.execution.wrapper, *spec.execution.wrapper_args])
                 print(f"Payload wrapper: {wrapper}")
