@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+from datetime import datetime, timezone
 from pathlib import Path
 import shlex
 from typing import Any
@@ -131,6 +133,104 @@ def _timing_text(timing: dict[str, Any]) -> str | None:
         if isinstance(value, (int, float)):
             parts.append(f"{label}={value:.2f}s")
     return " ".join(parts) or None
+
+
+def _seconds(value: object) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
+
+
+def _duration(value: object) -> str | None:
+    seconds = _seconds(value)
+    if seconds is None:
+        return None
+    hours, remainder = divmod(int(seconds + 0.5), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _saved_scheduler(directory: Path | None) -> dict[str, Any]:
+    if directory is None:
+        return {}
+    # Prefer the adjacent file so copied campaigns remain inspectable even when
+    # attempt.json contains an absolute provenance path from a different host.
+    try:
+        scheduler = _read_json(directory / "provenance.json").get("scheduler")
+    except (OSError, ValueError):
+        return {}
+    return scheduler if isinstance(scheduler, dict) else {}
+
+
+def _task_summary(
+    campaign_dir: Path, task: dict[str, Any], backend: str,
+    active: dict[str, Any] | None, now: datetime,
+) -> str:
+    directory, attempt = _attempt_record(campaign_dir, task)
+    attempt = attempt or {}
+    saved = _saved_scheduler(directory) if backend == "condor" else {}
+    parts = []
+    if active:
+        parts.extend((f"{backend}={active['state']}", f"job={active['job_id']}"))
+    elif saved.get("job_id"):
+        parts.append(f"job={saved['job_id']}")
+
+    # A DAG retry can be queued while the previous Yall attempt is still the
+    # latest on disk. Never attach that attempt's timing to the new job ID.
+    same_job = not active or (backend == "condor" and
+                             active.get("job_id") == saved.get("job_id"))
+    saved_start = _seconds(saved.get("job_current_start_date"))
+    live_start = _seconds((active or {}).get("job_current_start_date"))
+    same_execution = same_job and not (
+        saved_start is not None and live_start is not None and saved_start != live_start
+    )
+    current_attempt = same_execution and task.get("state") not in {"pending", "queued", "blocked"}
+    if current_attempt:
+        timing = attempt.get("timing")
+        timing = timing if isinstance(timing, dict) else {}
+        if attempt.get("state") in {"completed", "failed"}:
+            wall = _duration(timing.get("real_seconds"))
+            if wall is not None:
+                parts.append(f"wall={wall}")
+            user = _seconds(timing.get("user_seconds"))
+            system = _seconds(timing.get("sys_seconds"))
+            cpu = _duration(user + system) if user is not None and system is not None else None
+            if cpu is not None:
+                parts.append(f"cpu={cpu}")
+            if attempt.get("returncode") is not None:
+                parts.append(f"exit={attempt['returncode']}")
+        elif attempt.get("state") == "running" and task.get("state") == "running":
+            try:
+                started = datetime.fromisoformat(str(attempt.get("started_at", "")).replace("Z", "+00:00"))
+                elapsed = _duration((now - started).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                elapsed = None
+            if elapsed is not None:
+                parts.append(f"elapsed={elapsed}")
+
+    # Report only a single-start job's submit-to-start interval. Missing or
+    # ambiguous metadata is not zero wait; dependency waiting is not queueing.
+    context = {**saved, **(active or {})} if same_execution else (active or {})
+    if backend == "condor" and task.get("state") not in {"pending", "blocked"}:
+        queued = _seconds(context.get("qdate"))
+        started = _seconds(context.get("job_start_date"))
+        current = _seconds(context.get("job_current_start_date"))
+        starts = context.get("num_job_starts")
+        # Worker-side ads can still have NumJobStarts=0 at first launch (seen
+        # in BNL provenance). Require matching first/current starts in that case.
+        single_start = type(starts) is int and (
+            (starts == 1 and ("job_current_start_date" not in context or current == started))
+            or (starts == 0 and current is not None and current == started)
+        )
+        if single_start and queued is not None and queued > 0 and started is not None:
+            wait = _duration(started - queued)
+            if wait is not None:
+                parts.append(f"queue={wait}")
+    return (" " + " ".join(parts)) if parts else ""
 
 
 def _file_line(ref: dict[str, Any]) -> str:
@@ -387,11 +487,10 @@ def render_status(campaign_dir: str | Path, data: dict[str, Any], verbosity: int
     active_nodes = scheduler.get("nodes", {}) or {}
 
     lines = [f"Campaign {data['id']} ({backend})"]
+    now = datetime.now(timezone.utc)
     for task in data["tasks"]:
-        suffix = ""
         active = active_nodes.get(task["name"])
-        if active:
-            suffix = f" {backend}={active['state']} job={active['job_id']}"
+        suffix = _task_summary(campaign_dir, task, backend, active, now)
         lines.append(
             f"  {task['name']:<20} {task['state']:<10} "
             f"attempts={task['attempts']}{suffix}"

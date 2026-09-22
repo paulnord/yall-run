@@ -19,7 +19,44 @@ The levels are diagnostic rather than merely longer versions of the same listing
 
 ## `status`
 
-The default view shows one line per task plus the scheduler summary for queued backends. It is intended for frequent use and remains unchanged by this feature.
+The default view shows one line per task plus the scheduler summary for queued
+backends. Completed and failed attempts now retain useful execution information
+even after their jobs leave the queue. For example (illustrative values):
+
+```text
+  refine1-e1           completed  attempts=1 job=64836.0 wall=00:22:03 cpu=00:21:48 exit=0 queue=00:08:15
+  refine2-e1           running    attempts=1 condor=running job=64837.0 elapsed=00:03:12 queue=00:01:05
+  refine3-e1           pending    attempts=0
+```
+
+- `wall`: recorded elapsed execution time, including wrapper/container startup,
+  application work and I/O, excluding queue wait.
+- `cpu`: recorded user plus system CPU time; it can exceed wall time for a
+  parallel job. Shown only when both CPU measurements are available.
+- `exit`: the Yall attempt return code (including output validation).
+- `elapsed`: time since the currently running worker recorded its start. This
+  live wall-clock estimate may differ slightly from the final measured `wall`.
+- `job`: live scheduler job ID, or the saved Condor job ID for the latest
+  attempt after the live job disappears.
+- `queue`: Condor submission-to-first-start interval, shown only for a job
+  whose saved metadata supports a single start and valid `QDate`/`JobStartDate`. It can include
+  time held before starting; it excludes time waiting for DAG dependencies
+  before the node was submitted. Restarts and incomplete records omit this
+  field instead of guessing cumulative queue time. See the
+  [HTCondor timestamp definitions](https://htcondor.readthedocs.io/en/24.0/classad-attributes/job-classad-attributes.html#JobStartDate).
+
+Queue timing accepts `NumJobStarts=1` unless the current start differs from
+the first. Worker-side ads can still record `NumJobStarts=0` at first launch
+(observed in BNL records); zero is accepted only when both start timestamps
+are present and equal. Higher counts and conflicting timestamps omit `queue`.
+
+Durations use `HH:MM:SS`, rounded to the nearest second; hours can exceed 24.
+The timing and exit fields describe the latest attempt, not a sum across
+retries. A newly queued retry does not inherit the previous job's measurements.
+Local campaigns show the same saved wall/CPU/exit fields. Older or incomplete
+campaigns omit unavailable fields. These details use existing attempt and
+provenance files, require no new worker or campaign, and do not add scheduler
+queries. The JSON status schema is unchanged.
 
 ## `status -v`: why did it fail?
 
