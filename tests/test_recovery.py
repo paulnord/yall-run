@@ -149,6 +149,26 @@ def test_failed_query_is_unknown_not_empty_and_resume_fails_closed(campaign, mon
     assert not (c / "resumes").exists()
 
 
+def test_condor_query_from_different_submit_host_is_unknown(campaign, monkeypatch):
+    c = campaign("condor")
+    submit = json.loads((c / "condor" / "submit.json").read_text())
+    submit["submitter"] = {
+        "submit_host": "starsub04.sdcc.bnl.gov",
+        "schedd_host": "starsub04.sdcc.bnl.gov",
+    }
+    write(c / "condor" / "submit.json", submit)
+    monkeypatch.setattr(r.socket, "getfqdn", lambda: "starsub01.sdcc.bnl.gov")
+    scheduler = Scheduler("condor")
+    monkeypatch.setattr(r, "_run", scheduler)
+
+    data = r.reconcile_status(c, status_data(c))
+
+    assert not data["scheduler"]["query_ok"]
+    assert "submitted from starsub04.sdcc.bnl.gov" in data["scheduler"]["error"]
+    assert data["tasks"][1]["state"] == "unknown"
+    assert scheduler.calls == []
+
+
 @pytest.mark.parametrize("backend,queue", [
     ("condor", '[{"ClusterId":100,"ProcId":0,"JobStatus":2}]'),
     ("slurm", "11|RUNNING\n"),

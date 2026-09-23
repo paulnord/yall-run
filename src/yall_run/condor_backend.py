@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shlex
+import socket
 import subprocess
 from typing import Any
 
@@ -37,6 +38,23 @@ _STATUS_NAMES = {
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def _submitter_identity() -> dict[str, str]:
+    """Record the login host and configured schedd used for submission."""
+    host = socket.getfqdn()
+    try:
+        result = subprocess.run(
+            ["condor_config_val", "SCHEDD_HOST"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    schedd = result.stdout.strip() if result and result.returncode == 0 else ""
+    return {"submit_host": host, "schedd_host": schedd}
 
 
 def _slug(name: str) -> str:
@@ -209,6 +227,7 @@ def submit_rendered(campaign_dir: str | Path, *, overwrite: bool = False) -> Pat
         "stdout": output,
         "stderr": "",
         "overwrite": bool(overwrite),
+        "submitter": _submitter_identity(),
     }
     match = _CLUSTER_RE.search(output)
     if match:

@@ -108,6 +108,19 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
         nodes = snapshot["nodes"]
         active = snapshot["active_jobs"]
         if backend == "condor":
+            submit_hosts = {
+                str(record.get("submitter", {}).get("submit_host", "")).strip()
+                for _, record in records
+                if isinstance(record.get("submitter"), dict)
+            }
+            submit_hosts.discard("")
+            current_host = socket.getfqdn()
+            if submit_hosts and current_host not in submit_hosts:
+                raise RuntimeError(
+                    "campaign was submitted from "
+                    f"{', '.join(sorted(submit_hosts))}; current host is {current_host}; "
+                    "query that schedd from the submitting host"
+                )
             clusters = {int(record["cluster_id"]) for _, record in records
                         if record.get("cluster_id") is not None}
             if not clusters:
