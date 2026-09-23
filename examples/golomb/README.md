@@ -48,13 +48,30 @@ Finding a length-72 ruler is not by itself proof that 72 is optimal. Each shard 
 
 Only then does `reduce.py` set `optimality_established=true`. `verify.py` independently checks the final ruler and all $\binom{11}{2}=55$ pairwise distances.
 
+## Host setup and result collection
+
+The example uses `%preflight` to create and sanity-check `golomb-work` before
+any task is launched. After the graph completes, `%postflight` copies the two
+products that matter to a simple location inside the campaign:
+
+```text
+campaigns/<campaign-id>/results/best.json
+campaigns/<campaign-id>/results/report.txt
+```
+
+The postflight command runs on the host where `yall-run postflight` is invoked.
+It reads the graph products through `YALL_WORKFLOW_DIR`, so the workflow's
+shared working directory remains separate from the campaign bookkeeping.
+
 ## Run locally
 
 From this directory:
 
 ```bash
-yall-run create -j 8 | yall-run start
-cat golomb-work/report.txt
+campaign=$(yall-run create -j 8)
+yall-run start "$campaign"
+yall-run postflight "$campaign"
+cat "$campaign/results/report.txt"
 ```
 
 On a host where the current directory is a high-latency shared filesystem, the computation itself may still be fine but yall campaign bookkeeping can be much faster on node-local storage:

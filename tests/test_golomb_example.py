@@ -14,6 +14,8 @@ def test_golomb_example_graph(monkeypatch):
     spec = load_spec("Yallfile")
 
     assert spec.name == "golomb-11-branch-and-bound"
+    assert len(spec.preflight) == 1
+    assert len(spec.postflight) == 1
     assert len(spec.tasks) == 11
     tasks = {task.name: task for task in spec.tasks}
     search_names = [f"search-{index:02d}" for index in range(8)]
