@@ -790,7 +790,10 @@ def start_local(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
         cancel_prepared_start(campaign_dir)
         raise
 
-    return _run_local_graph(campaign_dir, manifest, mode="start")
+    result = _run_local_graph(campaign_dir, manifest, mode="start")
+    if manifest.get("postflight"):
+        run_postflight(campaign_dir)
+    return result
 
 
 def retry_task(campaign_dir: str | Path, task_name: str) -> int:
@@ -855,6 +858,8 @@ def resume_local(campaign_dir: str | Path, *, reason: str | None = None) -> Path
     _write_json(resume_path, record)
     try:
         result = _run_local_graph(campaign_dir, manifest, mode="resume")
+        if manifest.get("postflight") and not (campaign_dir / "postflight.json").exists():
+            run_postflight(campaign_dir)
     except Exception:
         record["finished_at"] = _utc_now()
         record["result"] = "failed"

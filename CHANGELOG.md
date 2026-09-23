@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0a5
+
+- Run frozen `%postflight` commands automatically after successful local and
+  queued campaigns. Condor uses a DAGMan completion hook; Slurm and PBS use a
+  terminal `afterok` job.
+- Keep scheduler-side postflight execution self-contained and record the same
+  campaign logs and `postflight.json` provenance as local execution.
+
 ## 0.12.0a1
 
 - Add repeatable campaign-level `%preflight` commands for host setup during

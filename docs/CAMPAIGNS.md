@@ -33,7 +33,7 @@ data, and campaign creation information. It executes any explicit
 not execute or submit graph tasks. Setup failure leaves diagnostics without a
 launchable campaign; successful setup is recorded and never repeated by start
 or recovery. A declared [`%postflight`](YALLFILE.md#host-completion-postflight)
-is frozen at the same time and can be run after successful completion.
+is frozen at the same time and runs automatically after successful completion.
 
 Start the exact campaign later:
 

@@ -19,6 +19,7 @@ from .campaign import (
 )
 from .model import CampaignSpec
 from .paths import logical_absolute
+from .postflight_runner import write_runner
 from .walltime import effective_walltime
 
 _CLUSTER_RE = re.compile(r"cluster\s+(\d+)", re.IGNORECASE)
@@ -158,12 +159,40 @@ def render_condor(spec: CampaignSpec, root: str | Path) -> Path:
             parents = " ".join(node_names[name] for name in task.parents)
             dag_lines.append(f"PARENT {parents} CHILD {node_names[task.name]}")
 
+    postflight_node = None
+    postflight_script = None
+    if spec.postflight:
+        postflight_node = "yall_postflight_barrier"
+        postflight_submit = condor_dir / "postflight_barrier.sub"
+        postflight_submit.write_text(
+            "universe = vanilla\n"
+            "executable = /bin/true\n"
+            f"output = {logs_dir / 'postflight_barrier.out'}\n"
+            f"error = {logs_dir / 'postflight_barrier.err'}\n"
+            f"log = {condor_dir / 'events.log'}\n"
+            "request_cpus = 1\nrequest_memory = 256MB\nrequest_disk = 128MB\n"
+            "should_transfer_files = NO\nqueue 1\n"
+        )
+        postflight_script = condor_dir / "postflight.sh"
+        workflow_dir = spec.source.parent
+        write_runner(postflight_script, campaign_dir=campaign_dir,
+                     workflow_dir=workflow_dir, commands=list(spec.postflight))
+        dag_lines.append(f"JOB {postflight_node} {postflight_submit.name}")
+        leaves = [
+            node_names[task.name] for task in spec.tasks
+            if not any(task.name in other.parents for other in spec.tasks)
+        ]
+        if leaves:
+            dag_lines.append(f"PARENT {' '.join(leaves)} CHILD {postflight_node}")
+        dag_lines.append(f"SCRIPT POST {postflight_node} {postflight_script.name}")
+
     dag_path = condor_dir / "campaign.dag"
     dag_path.write_text("\n".join(dag_lines) + "\n")
     _write_json(condor_dir / "render.json", {
         "backend": "condor",
         "dag": str(dag_path),
         "node_names": node_names,
+        "postflight_node": postflight_node,
         "condor": asdict(spec.condor),
     })
     return campaign_dir

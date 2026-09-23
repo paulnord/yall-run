@@ -59,9 +59,9 @@ campaigns/<campaign-id>/results/best.json
 campaigns/<campaign-id>/results/report.txt
 ```
 
-The postflight command runs on the host where `yall-run postflight` is invoked.
-It reads the graph products through `YALL_WORKFLOW_DIR`, so the workflow's
-shared working directory remains separate from the campaign bookkeeping.
+The postflight runs automatically after the graph succeeds. It reads the graph
+products through `YALL_WORKFLOW_DIR`, so the workflow's shared working directory
+remains separate from the campaign bookkeeping.
 
 ## Run locally
 
@@ -70,7 +70,6 @@ From this directory:
 ```bash
 campaign=$(yall-run create -j 8)
 yall-run start "$campaign"
-yall-run postflight "$campaign"
 cat "$campaign/results/report.txt"
 ```
 

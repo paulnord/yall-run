@@ -59,7 +59,7 @@ def _parser() -> argparse.ArgumentParser:
         "-V", "--version", action=_VersionAction,
         help="show package version and checkout commit when available",
     )
-    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,postflight,export}"
+    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,export}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -168,7 +168,7 @@ def _parser() -> argparse.ArgumentParser:
 
     postflight = sub.add_parser(
         "postflight",
-        help="run frozen host-side completion commands after a campaign succeeds",
+        help=argparse.SUPPRESS,
     )
     _friendly_sections(postflight)
     postflight.add_argument("campaign_dir")

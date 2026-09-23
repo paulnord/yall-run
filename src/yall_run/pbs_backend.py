@@ -24,6 +24,7 @@ from .campaign import (
     prepare_campaign_start,
 )
 from .model import CampaignSpec
+from .postflight_runner import write_runner
 from .walltime import effective_walltime, format_walltime
 
 _PBS_STATES = {
@@ -89,9 +90,27 @@ def render_pbs(spec: CampaignSpec, root: str | Path) -> Path:
         script.chmod(0o755)
         scripts[task.name] = script.name
 
+    postflight_name = None
+    if spec.postflight:
+        postflight_name = "postflight.sh"
+        postflight_script = pbs_dir / postflight_name
+        runner = pbs_dir / "postflight_runner.py"
+        write_runner(runner, campaign_dir=campaign_dir,
+                     workflow_dir=spec.source.parent, commands=list(spec.postflight))
+        postflight_script.write_text(
+            "#!/bin/bash\n"
+            "#PBS -N yall_postflight\n"
+            f"#PBS -o {logs_dir / 'postflight.out'}\n"
+            f"#PBS -e {logs_dir / 'postflight.err'}\n"
+            "set -euo pipefail\n"
+            f"exec python3 {runner}\n"
+        )
+        postflight_script.chmod(0o755)
+
     write_json(pbs_dir / "render.json", {
         "backend": "pbs",
         "scripts": scripts,
+        "postflight": postflight_name,
         "resources": {
             "cpus": spec.condor.request_cpus,
             "memory": spec.condor.request_memory,
@@ -187,6 +206,22 @@ def submit_pbs(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
                 print(f"[pbs] {name} job={job_id} held", flush=True)
             if not progressed:
                 raise RuntimeError("PBS submission graph made no progress")
+
+        if render.get("postflight"):
+            terminal_names = [
+                name for name in task_names
+                if not any(name in campaign_task_definition(campaign_dir, manifest, other).get("parents", [])
+                           for other in task_names)
+            ]
+            dependency = ":".join(job_ids[name] for name in terminal_names)
+            command = ["qsub", "-h", "-W", f"depend=afterok:{dependency}", render["postflight"]]
+            proc = subprocess.run(command, cwd=pbs_dir, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True)
+            commands.append(command)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "qsub failed")
+            job_ids["postflight"] = _parse_job_id(proc.stdout)
+            print(f"[pbs] postflight job={job_ids['postflight']} held", flush=True)
     except Exception:
         _cancel_jobs(list(job_ids.values()))
         cancel_prepared_start(campaign_dir)
