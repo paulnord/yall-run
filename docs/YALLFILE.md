@@ -244,7 +244,9 @@ validation report:
 Postflight commands are frozen at campaign creation and run on the host that
 invokes `yall-run postflight campaigns/<campaign-id>`. They use the campaign
 directory as their working directory. `YALL_CAMPAIGN_DIR` and
-`YALL_CAMPAIGN_ID` are available to each command, and logs are recorded under
+`YALL_CAMPAIGN_ID` are available to each command. `YALL_WORKFLOW_DIR` points to
+the original Yallfile directory, which is useful when a postflight transfers
+products created at workflow-relative paths. Logs are recorded under
 `postflight/`. For queued backends, run postflight after the scheduler reports
 the campaign complete; it is not an additional batch task.
 

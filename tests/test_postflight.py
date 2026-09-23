@@ -10,7 +10,7 @@ def test_postflight_runs_after_local_graph_and_records_campaign_environment(tmp_
     source = tmp_path / "Yallfile"
     source.write_text(
         "campaign postflight-test\n"
-        "%postflight ! printf '%s\\n' \"$YALL_CAMPAIGN_ID\" > postflight-id.txt\n"
+        "%postflight ! printf '%s\\n' \"$YALL_CAMPAIGN_ID $YALL_WORKFLOW_DIR\" > postflight-id.txt\n"
         "work:\n"
         "    touch work.done\n"
     )
@@ -19,7 +19,9 @@ def test_postflight_runs_after_local_graph_and_records_campaign_environment(tmp_
     assert not (campaign / "postflight.json").exists()
     assert main(["postflight", str(campaign)]) == 0
     capsys.readouterr()
-    assert (campaign / "postflight-id.txt").read_text() == campaign.name + "\n"
+    assert (campaign / "postflight-id.txt").read_text() == (
+        campaign.name + " " + str(source.parent) + "\n"
+    )
     record = json.loads((campaign / "postflight.json").read_text())
     assert record["state"] == "completed"
     assert record["commands"][0]["state"] == "completed"
