@@ -114,6 +114,14 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                 if isinstance(record.get("submitter"), dict)
             }
             submit_hosts.discard("")
+            # Campaigns created before submitter metadata was added still have
+            # the creation host in campaign.json.
+            if not submit_hosts:
+                creation = manifest.get("creation")
+                if isinstance(creation, dict):
+                    creation_host = str(creation.get("hostname", "")).strip()
+                    if creation_host:
+                        submit_hosts.add(creation_host)
             current_host = socket.getfqdn()
             if submit_hosts and current_host not in submit_hosts:
                 raise RuntimeError(

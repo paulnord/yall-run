@@ -169,6 +169,24 @@ def test_condor_query_from_different_submit_host_is_unknown(campaign, monkeypatc
     assert scheduler.calls == []
 
 
+def test_legacy_condor_campaign_uses_creation_host(campaign, monkeypatch):
+    c = campaign("condor")
+    manifest_path = c / "campaign.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["creation"] = {"hostname": "starsub04.sdcc.bnl.gov"}
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(r.socket, "getfqdn", lambda: "starsub01.sdcc.bnl.gov")
+    scheduler = Scheduler("condor")
+    monkeypatch.setattr(r, "_run", scheduler)
+
+    data = r.reconcile_status(c, status_data(c))
+
+    assert not data["scheduler"]["query_ok"]
+    assert "submitted from starsub04.sdcc.bnl.gov" in data["scheduler"]["error"]
+    assert data["tasks"][1]["state"] == "unknown"
+    assert scheduler.calls == []
+
+
 @pytest.mark.parametrize("backend,queue", [
     ("condor", '[{"ClusterId":100,"ProcId":0,"JobStatus":2}]'),
     ("slurm", "11|RUNNING\n"),
