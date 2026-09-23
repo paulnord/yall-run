@@ -364,7 +364,7 @@ def normalized_task_definition(
 
 def _run_hook(
     commands: tuple[Any, ...], campaign_dir: Path, *, hook: str,
-    cwd: Path, require_success: bool = True,
+    cwd: Path, workflow_dir: Path | None = None, require_success: bool = True,
 ) -> list[dict[str, Any]]:
     """Run a host-side lifecycle hook and archive one record per command."""
     records = []
@@ -392,6 +392,7 @@ def _run_hook(
                 environment = os.environ.copy()
                 environment["YALL_CAMPAIGN_DIR"] = str(campaign_dir)
                 environment["YALL_CAMPAIGN_ID"] = campaign_dir.name
+                environment["YALL_WORKFLOW_DIR"] = str(workflow_dir or cwd)
                 completed = subprocess.run(
                     launch, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
                     stdout=stdout, stderr=stderr, check=False,
@@ -439,7 +440,12 @@ def run_postflight(campaign_dir: str | Path) -> Path:
         else tuple(record.get("command") or [])
         for record in manifest.get("postflight", [])
     )
-    records = _run_hook(commands, campaign_dir, hook="postflight", cwd=campaign_dir)
+    source = Path(str(manifest.get("spec_source") or ""))
+    workflow_dir = source.parent if source.name else campaign_dir
+    records = _run_hook(
+        commands, campaign_dir, hook="postflight", cwd=campaign_dir,
+        workflow_dir=workflow_dir,
+    )
     _write_json(campaign_dir / "postflight.json", {
         "started_at": records[0]["started_at"] if records else _utc_now(),
         "finished_at": records[-1].get("finished_at", _utc_now()) if records else _utc_now(),

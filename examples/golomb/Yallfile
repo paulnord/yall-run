@@ -1,26 +1,35 @@
 campaign golomb-11-branch-and-bound
 backend local
 
+@set WORK golomb-work
+
+# Prepare the shared work area and verify that the example inputs are present.
+%preflight ! mkdir -p "{WORK}" && test -f init_incumbent.py && test -f reduce.py && test -f verify.py
+
+# Keep the final products beside the campaign, while sourcing results from the
+# workflow directory where the graph tasks wrote them.
+%postflight ! mkdir -p "$YALL_CAMPAIGN_DIR/results" && cp "$YALL_WORKFLOW_DIR/{WORK}/best.json" "$YALL_CAMPAIGN_DIR/results/best.json" && cp "$YALL_WORKFLOW_DIR/{WORK}/report.txt" "$YALL_CAMPAIGN_DIR/results/report.txt"
+
 # Eight independent search shards share a decreasing incumbent.  A shorter
 # ruler found by one task can therefore tighten pruning in the others.
 prepare:
-    @output incumbent golomb-work/incumbent.json
+    @output incumbent {WORK}/incumbent.json
     python3 init_incumbent.py --order 11 --limit 80 @output.incumbent
 
 search-{id}: prepare
     @each shard shards/shard-{id}.txt
-    @input incumbent golomb-work/incumbent.json
-    @output result golomb-work/search-{id}.json
+    @input incumbent {WORK}/incumbent.json
+    @output result {WORK}/search-{id}.json
     %memory 256MB
     python3 search.py @input.shard @input.incumbent @output.result
 
 reduce: search-{id}
-    @input incumbent golomb-work/incumbent.json
-    @input result golomb-work/search-{id}.json
-    @output best golomb-work/best.json
+    @input incumbent {WORK}/incumbent.json
+    @input result {WORK}/search-{id}.json
+    @output best {WORK}/best.json
     python3 reduce.py @input.incumbent @input.result -o @output.best
 
 verify: reduce
-    @input best golomb-work/best.json
-    @output report golomb-work/report.txt
+    @input best {WORK}/best.json
+    @output report {WORK}/report.txt
     python3 verify.py @input.best @output.report
