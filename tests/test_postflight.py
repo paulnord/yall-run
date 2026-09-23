@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 from yall_run.campaign import create_campaign, start_local
-from yall_run.cli import main
 from yall_run.model import load_spec
 
 
@@ -16,8 +15,6 @@ def test_postflight_runs_after_local_graph_and_records_campaign_environment(tmp_
     )
     campaign = create_campaign(load_spec(source), tmp_path / "campaigns")
     start_local(campaign)
-    assert not (campaign / "postflight.json").exists()
-    assert main(["postflight", str(campaign)]) == 0
     capsys.readouterr()
     assert (campaign / "postflight-id.txt").read_text() == (
         campaign.name + " " + str(source.parent) + "\n"
@@ -37,5 +34,4 @@ def test_postflight_requires_completed_tasks(tmp_path):
         "    echo work\n"
     )
     campaign = create_campaign(load_spec(source), tmp_path / "campaigns")
-    result = main(["postflight", str(campaign)])
-    assert result == 2
+    assert not (campaign / "postflight.json").exists()

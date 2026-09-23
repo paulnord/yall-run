@@ -241,14 +241,15 @@ validation report:
 %postflight ! python3 collect_provenance.py "$YALL_CAMPAIGN_DIR"
 ```
 
-Postflight commands are frozen at campaign creation and run on the host that
-invokes `yall-run postflight campaigns/<campaign-id>`. They use the campaign
-directory as their working directory. `YALL_CAMPAIGN_DIR` and
+Postflight commands are frozen at campaign creation and run automatically after
+the graph succeeds. Local campaigns run them after the local graph; Condor uses
+a DAGMan completion hook, while Slurm and PBS submit a small terminal job with
+an `afterok` dependency. They use the campaign directory as their working
+directory. `YALL_CAMPAIGN_DIR` and
 `YALL_CAMPAIGN_ID` are available to each command. `YALL_WORKFLOW_DIR` points to
 the original Yallfile directory, which is useful when a postflight transfers
 products created at workflow-relative paths. Logs are recorded under
-`postflight/`. For queued backends, run postflight after the scheduler reports
-the campaign complete; it is not an additional batch task.
+`postflight/`.
 
 ### Execution wrappers
 

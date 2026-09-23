@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yall-run"
-version = "0.12.0a4"
+version = "0.12.0a6"
 description = "Yet Another Launch Layer: lightweight campaign execution and provenance"
 readme = "README.md"
 requires-python = ">=3.8"

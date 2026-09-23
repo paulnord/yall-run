@@ -59,7 +59,7 @@ def _parser() -> argparse.ArgumentParser:
         "-V", "--version", action=_VersionAction,
         help="show package version and checkout commit when available",
     )
-    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,postflight,export}"
+    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,export}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -119,6 +119,14 @@ def _parser() -> argparse.ArgumentParser:
         help="Slurm/PBS: cancel surviving pending/held jobs before rebuilding dependencies",
     )
     resume.add_argument(
+        "--overwrite", action="store_true",
+        help="delete existing outputs of unfinished tasks before retrying",
+    )
+    resume.add_argument(
+        "-y", "--yes", action="store_true",
+        help="confirm --overwrite without an interactive prompt",
+    )
+    resume.add_argument(
         "--reason",
         help="optional human explanation stored with the resume record",
     )
@@ -168,7 +176,7 @@ def _parser() -> argparse.ArgumentParser:
 
     postflight = sub.add_parser(
         "postflight",
-        help="run frozen host-side completion commands after a campaign succeeds",
+        help=argparse.SUPPRESS,
     )
     _friendly_sections(postflight)
     postflight.add_argument("campaign_dir")
@@ -373,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
             return resume_campaign(
                 args.campaign_dir, dry_run=args.dry_run,
                 cancel_pending=args.cancel_pending, reason=args.reason,
+                overwrite=args.overwrite, yes=args.yes,
             )
 
         if args.command == "amend":

@@ -24,6 +24,7 @@ from .campaign import (
     prepare_campaign_start,
 )
 from .model import CampaignSpec
+from .postflight_runner import write_runner
 from .walltime import effective_walltime, format_walltime
 
 _SLURM_STATES = {
@@ -84,9 +85,27 @@ def render_slurm(spec: CampaignSpec, root: str | Path) -> Path:
         script.chmod(0o755)
         scripts[task.name] = script.name
 
+    postflight_name = None
+    if spec.postflight:
+        postflight_name = "postflight.sh"
+        postflight_script = slurm_dir / postflight_name
+        runner = slurm_dir / "postflight_runner.py"
+        write_runner(runner, campaign_dir=campaign_dir,
+                     workflow_dir=spec.source.parent, commands=list(spec.postflight))
+        postflight_script.write_text(
+            "#!/bin/bash\n"
+            "#SBATCH --job-name=yall_postflight\n"
+            f"#SBATCH --output={logs_dir / 'postflight.out'}\n"
+            f"#SBATCH --error={logs_dir / 'postflight.err'}\n"
+            "set -euo pipefail\n"
+            f"exec python3 {runner}\n"
+        )
+        postflight_script.chmod(0o755)
+
     write_json(slurm_dir / "render.json", {
         "backend": "slurm",
         "scripts": scripts,
+        "postflight": postflight_name,
         "resources": {
             "cpus": spec.condor.request_cpus,
             "memory": spec.condor.request_memory,
@@ -182,6 +201,22 @@ def submit_slurm(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
                 print(f"[slurm] {name} job={job_id} held", flush=True)
             if not progressed:
                 raise RuntimeError("Slurm submission graph made no progress")
+
+        if render.get("postflight"):
+            terminal_names = [
+                name for name in task_names
+                if not any(name in campaign_task_definition(campaign_dir, manifest, other).get("parents", [])
+                           for other in task_names)
+            ]
+            dependency = ":".join(job_ids[name] for name in terminal_names)
+            command = ["sbatch", "--parsable", "--hold", f"--dependency=afterok:{dependency}", render["postflight"]]
+            proc = subprocess.run(command, cwd=slurm_dir, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True)
+            commands.append(command)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "sbatch failed")
+            job_ids["postflight"] = _parse_job_id(proc.stdout)
+            print(f"[slurm] postflight job={job_ids['postflight']} held", flush=True)
     except Exception:
         _cancel_jobs(list(job_ids.values()))
         cancel_prepared_start(campaign_dir)
