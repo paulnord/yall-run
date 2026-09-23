@@ -32,7 +32,8 @@ data, and campaign creation information. It executes any explicit
 [`%preflight` host setup commands](YALLFILE.md#host-setup-preflight), but does
 not execute or submit graph tasks. Setup failure leaves diagnostics without a
 launchable campaign; successful setup is recorded and never repeated by start
-or recovery.
+or recovery. A declared [`%postflight`](YALLFILE.md#host-completion-postflight)
+is frozen at the same time and can be run after successful completion.
 
 Start the exact campaign later:
 

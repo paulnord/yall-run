@@ -204,7 +204,7 @@ def test_cli_version_reports_alpha_version(capsys):
         main(["--version"])
     assert exc.value.code == 0
     text = capsys.readouterr().out.strip()
-    assert text.startswith("yall-run 0.12.0a1")
+    assert text.startswith("yall-run 0.12.0a4")
 
 
 def test_cli_short_version_reports_alpha_version(capsys):
@@ -213,4 +213,4 @@ def test_cli_short_version_reports_alpha_version(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["-V"])
     assert exc.value.code == 0
-    assert capsys.readouterr().out.startswith("yall-run 0.12.0a1")
+    assert capsys.readouterr().out.startswith("yall-run 0.12.0a4")

@@ -353,8 +353,8 @@ def _resolve_parameter_sets(
         each.values = [value for row in combined for value in row]
 
 
-def _preflight_command(text: str, variables: Mapping[str, str], lineno: int) -> Command:
-    context = f"line {lineno}: %preflight"
+def _hook_command(text: str, variables: Mapping[str, str], lineno: int, hook: str) -> Command:
+    context = f"line {lineno}: %{hook}"
     shell = text.startswith("!")
     if shell:
         # Explicit shell commands use the same textual substitution as tasks.
@@ -393,6 +393,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
     payload_wrapper_args: Tuple[str, ...] = ()
     wrapper_lineno = 0
     preflight_templates: List[Tuple[int, str]] = []
+    postflight_templates: List[Tuple[int, str]] = []
     tasks: List[_TaskTemplate] = []
     variables: Dict[str, str] = {}
     parameters: Dict[str, _Parameters] = {}
@@ -408,10 +409,12 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
         if not indented:
             current = None
             table = None
-            if stripped.split()[0] == "%preflight":
+            directive = stripped.split()[0]
+            if directive in {"%preflight", "%postflight"}:
                 if tasks:
-                    raise ValueError(f"line {lineno}: %preflight must appear before tasks")
-                preflight_templates.append((lineno, stripped[len("%preflight"):].lstrip()))
+                    raise ValueError(f"line {lineno}: {directive} must appear before tasks")
+                target = preflight_templates if directive == "%preflight" else postflight_templates
+                target.append((lineno, stripped[len(directive):].lstrip()))
                 continue
             if stripped.split()[0] in {"@list", "@table"}:
                 directive = stripped.split()[0]
@@ -672,9 +675,11 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
         getenv=condor_getenv,
     )
     execution = ExecutionSpec(wrapper=payload_wrapper, wrapper_args=payload_wrapper_args)
-    preflight = tuple(_preflight_command(text, variables, lineno)
+    preflight = tuple(_hook_command(text, variables, lineno, "preflight")
                       for lineno, text in preflight_templates)
-    return campaign_name, backend, condor, execution, preflight, tasks
+    postflight = tuple(_hook_command(text, variables, lineno, "postflight")
+                       for lineno, text in postflight_templates)
+    return campaign_name, backend, condor, execution, preflight, postflight, tasks
 
 
 def _family_bindings(
@@ -959,7 +964,7 @@ def _instantiate(
 
 
 def load_yall_spec(source: Path) -> CampaignSpec:
-    campaign_name, backend, condor, execution, preflight, templates = _parse(source.read_text())
+    campaign_name, backend, condor, execution, preflight, postflight, templates = _parse(source.read_text())
     template_map: Dict[str, _TaskTemplate] = {}
     for template in templates:
         if template.name in template_map:
@@ -984,4 +989,5 @@ def load_yall_spec(source: Path) -> CampaignSpec:
         condor=condor,
         execution=execution,
         preflight=preflight,
+        postflight=postflight,
     )

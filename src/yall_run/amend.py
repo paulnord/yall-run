@@ -194,6 +194,22 @@ def _validate_preflight(spec: CampaignSpec, manifest: dict[str, Any]) -> None:
         )
 
 
+def _validate_postflight(spec: CampaignSpec, manifest: dict[str, Any]) -> None:
+    frozen = [
+        {"command": record.get("command"), "cwd": record.get("cwd")}
+        for record in manifest.get("postflight", [])
+    ]
+    current = [
+        {"command": _normalized_command(command), "cwd": "campaign_dir"}
+        for command in spec.postflight
+    ]
+    if current != frozen:
+        raise ValueError(
+            "current Yallfile changes frozen postflight commands or working directory; "
+            "postflight is frozen at creation; create a new campaign"
+        )
+
+
 def _validate_backend_defaults(
     campaign_dir: Path,
     spec: CampaignSpec,
@@ -315,6 +331,7 @@ def amend_campaign(
         )
     _validate_wrapper(spec, manifest)
     _validate_preflight(spec, manifest)
+    _validate_postflight(spec, manifest)
     _validate_backend_defaults(campaign_dir, spec, backend)
 
     frozen_tasks = manifest["tasks"]

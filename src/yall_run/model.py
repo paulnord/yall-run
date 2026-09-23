@@ -85,6 +85,7 @@ class CampaignSpec:
     execution: ExecutionSpec = ExecutionSpec()
     set_values: Tuple[Tuple[str, str], ...] = ()
     preflight: Tuple[Command, ...] = ()
+    postflight: Tuple[Command, ...] = ()
 
 
 def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None:
