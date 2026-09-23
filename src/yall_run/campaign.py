@@ -362,17 +362,21 @@ def normalized_task_definition(
     return record
 
 
-def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any]]:
-    """Run host setup before a launchable campaign manifest exists."""
+def _run_hook(
+    commands: tuple[Any, ...], campaign_dir: Path, *, hook: str,
+    cwd: Path, require_success: bool = True,
+) -> list[dict[str, Any]]:
+    """Run a host-side lifecycle hook and archive one record per command."""
     records = []
-    for index, command in enumerate(spec.preflight, 1):
-        directory = campaign_dir / "preflight" / f"{index:03d}"
+    for index, command in enumerate(commands, 1):
+        directory = campaign_dir / hook / f"{index:03d}"
         directory.mkdir(parents=True)
         stdout_path = directory / "stdout.log"
         stderr_path = directory / "stderr.log"
         record = {
             "command": command if isinstance(command, str) else list(command),
-            "cwd": str(spec.source.parent),
+            "cwd": str(cwd),
+            "hook": hook,
             "hostname": platform.node(),
             "state": "running",
             "started_at": _utc_now(),
@@ -381,12 +385,15 @@ def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any
             "stderr": str(stderr_path.relative_to(campaign_dir)),
         }
         _write_json(directory / "result.json", record)
-        print(f"[preflight {index}] logs: {directory}", file=sys.stderr, flush=True)
+        print(f"[{hook} {index}] logs: {directory}", file=sys.stderr, flush=True)
         launch = ["/bin/bash", "-c", command] if isinstance(command, str) else list(command)
         try:
             with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                environment = os.environ.copy()
+                environment["YALL_CAMPAIGN_DIR"] = str(campaign_dir)
+                environment["YALL_CAMPAIGN_ID"] = campaign_dir.name
                 completed = subprocess.run(
-                    launch, cwd=spec.source.parent, stdin=subprocess.DEVNULL,
+                    launch, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
                     stdout=stdout, stderr=stderr, check=False,
                 )
             record["returncode"] = completed.returncode
@@ -406,13 +413,40 @@ def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any
                     with path.open(encoding="utf-8", errors="replace") as stream:
                         shutil.copyfileobj(stream, sys.stderr)
         records.append(record)
-        if record["state"] != "completed":
+        if require_success and record["state"] != "completed":
             detail = record.get("error", f"exit {record['returncode']}")
             raise ValueError(
-                f"preflight {index} failed ({detail}); campaign was not created; "
-                f"diagnostics retained at {campaign_dir}"
+                f"{hook} {index} failed ({detail}); diagnostics retained at {campaign_dir}"
             )
     return records
+
+
+def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any]]:
+    """Run host setup before a launchable campaign manifest exists."""
+    return _run_hook(spec.preflight, campaign_dir, hook="preflight", cwd=spec.source.parent)
+
+
+def run_postflight(campaign_dir: str | Path) -> Path:
+    """Run frozen postflight commands after every graph task completed."""
+    campaign_dir, manifest = campaign_manifest(campaign_dir)
+    if (campaign_dir / "postflight.json").is_file():
+        raise ValueError(f"postflight has already run: {campaign_dir}")
+    status = campaign_status(campaign_dir)
+    if status["counts"].get("completed", 0) != len(manifest.get("task_order", [])):
+        raise ValueError("postflight requires every campaign task to be completed")
+    commands = tuple(
+        record.get("command") if isinstance(record.get("command"), str)
+        else tuple(record.get("command") or [])
+        for record in manifest.get("postflight", [])
+    )
+    records = _run_hook(commands, campaign_dir, hook="postflight", cwd=campaign_dir)
+    _write_json(campaign_dir / "postflight.json", {
+        "started_at": records[0]["started_at"] if records else _utc_now(),
+        "finished_at": records[-1].get("finished_at", _utc_now()) if records else _utc_now(),
+        "state": "completed",
+        "commands": records,
+    })
+    return campaign_dir
 
 
 def create_campaign(
@@ -495,6 +529,15 @@ def create_campaign(
     }
     if preflight:
         manifest["preflight"] = preflight
+    if spec.postflight:
+        manifest["postflight"] = [
+            {
+                "command": command if isinstance(command, str) else list(command),
+                "cwd": "campaign_dir",
+                "hook": "postflight",
+            }
+            for command in spec.postflight
+        ]
 
     for task in spec.tasks:
         _write_json(_state_path(campaign_dir, task.name), {

@@ -14,6 +14,7 @@ from .campaign import (
     campaign_status,
     create_campaign,
     retry_task,
+    run_postflight,
     start_local,
 )
 from .condor_backend import render_condor, submit_rendered
@@ -58,7 +59,7 @@ def _parser() -> argparse.ArgumentParser:
         "-V", "--version", action=_VersionAction,
         help="show package version and checkout commit when available",
     )
-    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,export}"
+    visible_commands = "{validate,plan,create,start,resume,amend,status,retry,postflight,export}"
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -165,6 +166,13 @@ def _parser() -> argparse.ArgumentParser:
     retry.add_argument("campaign_dir")
     retry.add_argument("task")
 
+    postflight = sub.add_parser(
+        "postflight",
+        help="run frozen host-side completion commands after a campaign succeeds",
+    )
+    _friendly_sections(postflight)
+    postflight.add_argument("campaign_dir")
+
     export = sub.add_parser("export", help="export campaign provenance to relational files")
     _friendly_sections(export)
     export.add_argument(
@@ -225,6 +233,11 @@ def _plan_json(spec: object) -> dict[str, object]:
              "cwd": str(spec.source.parent)}
             for command in spec.preflight
         ],
+        "postflight": [
+            {"command": command if isinstance(command, str) else list(command),
+             "cwd": "campaign_dir"}
+            for command in spec.postflight
+        ],
         "tasks": tasks,
     }
 
@@ -279,6 +292,11 @@ def main(argv: list[str] | None = None) -> int:
             if spec.preflight:
                 print(f"Host preflight (during create, cwd={spec.source.parent}):")
                 for index, command in enumerate(spec.preflight, 1):
+                    prefix = "! " if isinstance(command, str) else ""
+                    print(f"  {index}: {prefix}{_display_command(command)}")
+            if spec.postflight:
+                print("Host postflight (after campaign completion):")
+                for index, command in enumerate(spec.postflight, 1):
                     prefix = "! " if isinstance(command, str) else ""
                     print(f"  {index}: {prefix}{_display_command(command)}")
             if spec.execution.wrapper:
@@ -417,6 +435,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "retry":
             return retry_task(args.campaign_dir, args.task)
+
+        if args.command == "postflight":
+            run_postflight(args.campaign_dir)
+            print(f"[postflight] completed {args.campaign_dir}")
+            return 0
 
         if args.command == "export":
             campaigns, counts = export_provenance(

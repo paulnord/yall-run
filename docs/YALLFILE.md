@@ -164,7 +164,8 @@ backend condor
 %time 2h
 ```
 
-Other campaign-level directives are `%getenv`, `%wrapper`, and `%preflight`.
+Other campaign-level directives are `%getenv`, `%wrapper`, `%preflight`, and
+`%postflight`.
 
 ### Host setup: `%preflight`
 
@@ -218,8 +219,9 @@ retries, and `resume` never repeat them; `amend` rejects changes to their
 commands or working directory. Recipes without `%preflight` keep their
 existing behavior.
 
-Existing Yallfiles need no migration. Before adding `%preflight` to a recipe,
-update Yall on the host running `create`; older versions reject the new directive.
+Existing Yallfiles need no migration. Before adding `%preflight` or `%postflight`
+to a recipe, update Yall on the host running `create`; older versions reject
+the new directives.
 
 Use preflights for directory setup and inexpensive input checks. They run only
 after parsing and task expansion, so they cannot create files needed for
@@ -228,6 +230,23 @@ worker-node or container access. Leave substantial computation, including large
 data merges, in ordinary tasks. Create output parent directories rather than
 declared output files or output directories: the normal start-time output guard
 still applies.
+
+### Host completion: `%postflight`
+
+Use `%postflight` for lightweight work that should happen after every graph task
+has completed, such as checksum collection, provenance indexing, or a final
+validation report:
+
+```text
+%postflight ! python3 collect_provenance.py "$YALL_CAMPAIGN_DIR"
+```
+
+Postflight commands are frozen at campaign creation and run on the host that
+invokes `yall-run postflight campaigns/<campaign-id>`. They use the campaign
+directory as their working directory. `YALL_CAMPAIGN_DIR` and
+`YALL_CAMPAIGN_ID` are available to each command, and logs are recorded under
+`postflight/`. For queued backends, run postflight after the scheduler reports
+the campaign complete; it is not an additional batch task.
 
 ### Execution wrappers
 

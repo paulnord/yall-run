@@ -19,6 +19,13 @@ def test_preflight_is_optional_and_does_not_add_tasks(tmp_path):
     assert [task.name for task in spec.tasks] == ["work"]
 
 
+def test_postflight_is_optional_and_does_not_add_tasks(tmp_path):
+    source = write_spec(tmp_path, "%postflight echo done")
+    spec = load_spec(source)
+    assert spec.postflight == (("echo", "done"),)
+    assert [task.name for task in spec.tasks] == ["work"]
+
+
 def test_preflight_preserves_order_and_freezes_argv_before_substitution(tmp_path, monkeypatch):
     value = "/work/has spaces/'quotes'/$(literal);still-data"
     monkeypatch.setenv("SETUP_ROOT", value)
@@ -48,6 +55,11 @@ def test_explicit_shell_preflight_preserves_shell_and_quoted_placeholders(tmp_pa
     assert load_spec(source).preflight == (
         "test -d \"/work/has spaces\" && printf '%s\\n' \"/work/has spaces\" > 'setup log.txt'",
     )
+
+
+def test_explicit_shell_postflight_is_parsed(tmp_path):
+    source = write_spec(tmp_path, "%postflight ! printf '%s' done > postflight.txt")
+    assert load_spec(source).postflight == ("printf '%s' done > postflight.txt",)
 
 
 @pytest.mark.parametrize("directive, error", [
