@@ -821,7 +821,22 @@ def _next_resume_path(campaign_dir: Path) -> Path:
     return root / f"resume_{number:03d}.json"
 
 
-def resume_local(campaign_dir: str | Path, *, reason: str | None = None) -> Path:
+def _confirm_local_overwrite(paths: list[Path], *, yes: bool) -> None:
+    if not paths or yes:
+        return
+    print("The following declared outputs will be deleted and regenerated:", file=sys.stderr)
+    for path in paths:
+        print(f"  {path}", file=sys.stderr)
+    if not getattr(sys.stdin, "isatty", lambda: False)():
+        raise ValueError("resume --overwrite needs an interactive confirmation; use --yes in scripts")
+    if input("Delete these outputs and continue? [y/N] ").strip().lower() not in {"y", "yes"}:
+        raise ValueError("resume cancelled")
+
+
+def resume_local(campaign_dir: str | Path, *, reason: str | None = None,
+                 overwrite: bool = False, yes: bool = False) -> Path:
+    if yes and not overwrite:
+        raise ValueError("--yes requires --overwrite")
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
         raise ValueError("resume currently supports local campaigns only")
@@ -842,6 +857,26 @@ def resume_local(campaign_dir: str | Path, *, reason: str | None = None) -> Path
         )
 
     initial = campaign_status(campaign_dir)
+    unfinished = {
+        name for name in _task_names(manifest)
+        if _task_state(campaign_dir, manifest, name).get("state") in {"failed", "blocked", "pending"}
+    }
+    overwrite_paths = [
+        Path(ref["path"])
+        for name in unfinished
+        for ref in _task_definition(campaign_dir, manifest, name).get("outputs", [])
+        if Path(ref["path"]).exists() or Path(ref["path"]).is_symlink()
+    ]
+    if overwrite:
+        _confirm_local_overwrite(overwrite_paths, yes=yes)
+        for path in overwrite_paths:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        start = _read_json(campaign_dir / "start.json")
+        start["overwrite"] = True
+        _write_json(campaign_dir / "start.json", start)
     for name in _task_names(manifest):
         state = _task_state(campaign_dir, manifest, name)
         if state.get("state") in {"failed", "blocked"}:

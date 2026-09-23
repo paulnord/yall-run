@@ -12,6 +12,8 @@ import getpass
 import hashlib
 import json
 import os
+import shutil
+import sys
 from pathlib import Path
 import re
 import shlex
@@ -384,7 +386,7 @@ def _resume_lock(cdir: Path):
 
 
 def _plan(cdir: Path, manifest: dict[str, Any], tasks: dict[str, Any],
-          snapshot: dict[str, Any]) -> dict[str, Any]:
+          snapshot: dict[str, Any], *, allow_overwrite: bool = False) -> dict[str, Any]:
     if not snapshot.get("query_ok"):
         raise RuntimeError(f"resume refused: {snapshot.get('error', 'scheduler state unknown')}")
     states = {name: _state(cdir, manifest, name) for name in tasks}
@@ -400,7 +402,8 @@ def _plan(cdir: Path, manifest: dict[str, Any], tasks: dict[str, Any],
             raise ValueError(f"inconsistent completed dependency chain at {name}")
     # Check external inputs, not files that an unfinished ancestor will produce.
     produced = {ref["path"] for name in selected for ref in tasks[name].get("outputs", [])}
-    overwrite = bool(_read(cdir / "start.json").get("overwrite", False))
+    overwrite = bool(_read(cdir / "start.json").get("overwrite", False)) or allow_overwrite
+    overwrite_outputs: list[str] = []
     for name in selected:
         for ref in tasks[name].get("inputs", []):
             if ref["path"] not in produced and not Path(ref["path"]).exists():
@@ -409,11 +412,15 @@ def _plan(cdir: Path, manifest: dict[str, Any], tasks: dict[str, Any],
             for ref in tasks[name].get("outputs", []):
                 path = Path(ref["path"])
                 if path.exists() or path.is_symlink():
-                    raise ValueError(f"unfinished task {name} has an existing output: {path}; "
-                                     "inspect and move partial output aside before resume")
+                    if not allow_overwrite:
+                        raise ValueError(f"unfinished task {name} has an existing output: {path}; "
+                                         "inspect and move partial output aside before resume, "
+                                         "or use resume --overwrite")
+                    overwrite_outputs.append(str(path))
     plan = {"backend": manifest["backend"], "completed": completed, "selected": selected,
             "recorded_states": states, "reconciled_states": effective,
             "scheduler_before": snapshot}
+    plan["overwrite_outputs"] = overwrite_outputs
     if manifest["backend"] == "condor" and selected:
         rescue, number = _latest_rescue(cdir)
         render = _read(cdir / "condor" / "render.json")
@@ -593,8 +600,33 @@ def _raise_if_source_needs_amendment(cdir: Path) -> None:
     )
 
 
+def _confirm_overwrite(paths: list[str], *, yes: bool, dry_run: bool) -> None:
+    if not paths or dry_run or yes:
+        return
+    print("The following declared outputs will be deleted and regenerated:", file=sys.stderr)
+    for path in paths:
+        print(f"  {path}", file=sys.stderr)
+    if not getattr(sys.stdin, "isatty", lambda: False)():
+        raise ValueError("resume --overwrite needs an interactive confirmation; use --yes in scripts")
+    answer = input("Delete these outputs and continue? [y/N] ")
+    if answer.strip().lower() not in {"y", "yes"}:
+        raise ValueError("resume cancelled")
+
+
+def _delete_overwrite_outputs(paths: list[str]) -> None:
+    for raw in paths:
+        path = Path(raw)
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
 def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
-                    cancel_pending: bool = False, reason: str | None = None) -> int:
+                    cancel_pending: bool = False, reason: str | None = None,
+                    overwrite: bool = False, yes: bool = False) -> int:
+    if yes and not overwrite:
+        raise ValueError("--yes requires --overwrite")
     cdir, manifest, tasks = _load(campaign_dir)
     backend = manifest.get("backend", "local")
     if backend == "local":
@@ -602,7 +634,7 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
             raise ValueError("--dry-run and --cancel-pending are queued-backend options")
         _raise_if_source_needs_amendment(cdir)
         from .campaign import resume_local
-        resume_local(cdir, reason=reason)
+        resume_local(cdir, reason=reason, overwrite=overwrite, yes=yes)
         return 0
     if backend not in QUEUED_BACKENDS:
         raise ValueError(f"unsupported backend: {backend}")
@@ -625,7 +657,7 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
             if job["task"] and _state(cdir, manifest, job["task"]).get("state") == "completed":
                 raise ValueError("a completed task has an active job; inspect the conflicting state")
         _raise_if_source_needs_amendment(cdir)
-        plan = _plan(cdir, manifest, tasks, snapshot)
+        plan = _plan(cdir, manifest, tasks, snapshot, allow_overwrite=overwrite)
         print(f"[{backend}] resume: keep {len(plan['completed'])} completed; "
               f"retry/continue {len(plan['selected'])} tasks", flush=True)
         if not plan["selected"]:
@@ -633,8 +665,12 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
         if dry_run:
             if active:
                 print(f"[{backend}] would cancel {len(active)} pending/held jobs", flush=True)
+            for path in plan.get("overwrite_outputs", []):
+                print(f"[resume] would delete {path}", flush=True)
             print("[resume] dry run: nothing submitted or cancelled", flush=True)
             return 0
+        _confirm_overwrite(plan.get("overwrite_outputs", []), yes=yes, dry_run=False)
+        _delete_overwrite_outputs(plan.get("overwrite_outputs", []))
         root = cdir / "resumes"
         root.mkdir(exist_ok=True)
         numbers = [int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()]
@@ -666,7 +702,7 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
                 if not after["query_ok"] or after["active_jobs"]:
                     raise RuntimeError("cancellation not yet confirmed; nothing resubmitted. "
                                        "Retry resume after the old jobs have left the queue")
-                plan = _plan(cdir, manifest, tasks, after)
+                plan = _plan(cdir, manifest, tasks, after, allow_overwrite=overwrite)
                 record["scheduler_after_cancel"] = after
                 record["reconciled_states"] = plan["reconciled_states"]
             else:

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.0a6
+
+- Add confirmed `resume --overwrite` recovery for partial outputs, with `--yes`
+  / `-y` for noninteractive use.
+
 ## 0.12.0a5
 
 - Run frozen `%postflight` commands automatically after successful local and

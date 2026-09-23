@@ -41,6 +41,18 @@ partial products aside before resuming. Missing outputs of a completed task
 require repair or a new campaign. The command does not silently invalidate
 completed descendants or change an old campaign's overwrite policy.
 
+When a partial product should be regenerated, `resume --overwrite` can remove
+the declared outputs belonging to unfinished tasks and retry them. It lists the
+paths and asks for interactive confirmation:
+
+```bash
+yall-run resume campaigns/<campaign-id> --overwrite
+```
+
+Use `--yes` (or `-y`) with `--overwrite` in a script. The option never removes
+outputs of tasks that recovery has verified as completed. Without `--yes`, a
+noninteractive invocation is rejected rather than assuming approval.
+
 Fix the original cause before resuming, for example rebuilding an executable
 at the path recorded in the task. Referenced binaries, data and container images
 remain external resources; resuming does not make a moving image immutable.
