@@ -125,7 +125,13 @@ def scheduler_snapshot(campaign_dir: str | Path) -> dict[str, Any]:
                     if creation_host:
                         submit_hosts.add(creation_host)
             current_host = socket.getfqdn()
-            if submit_hosts and current_host not in submit_hosts:
+            host_aliases = {current_host, current_host.split(".", 1)[0]}
+            submitted_aliases = {
+                alias
+                for host in submit_hosts
+                for alias in (host, host.split(".", 1)[0])
+            }
+            if submit_hosts and not host_aliases.intersection(submitted_aliases):
                 raise RuntimeError(
                     "campaign was submitted from "
                     f"{', '.join(sorted(submit_hosts))}; current host is {current_host}; "

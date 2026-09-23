@@ -45,6 +45,10 @@ def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, ca
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
     calls = []
+    monkeypatch.setattr(
+        "yall_run.condor_backend._submitter_identity",
+        lambda: {"submit_host": "test-host", "schedd_host": "test-schedd"},
+    )
 
     class FakePopen:
         def __init__(self, command, **kwargs):
@@ -77,6 +81,10 @@ def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monke
     )
     spec = load_spec(spec_file)
     campaign_dir = render_condor(spec, tmp_path / "campaigns")
+    monkeypatch.setattr(
+        "yall_run.condor_backend._submitter_identity",
+        lambda: {"submit_host": "test-host", "schedd_host": "test-schedd"},
+    )
 
     class FakePopen:
         def __init__(self, command, **kwargs):
