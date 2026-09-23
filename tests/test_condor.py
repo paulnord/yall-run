@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from yall_run.condor_backend import render_condor, submit_rendered
+from yall_run.condor_backend import condor_queue_status, render_condor, submit_rendered
 from yall_run.model import load_spec
 
 
@@ -64,6 +64,45 @@ def test_condor_start_submits_without_local_jobs_limit(tmp_path, monkeypatch, ca
     assert start["execution"] == {"condor": {}}
     submit = json.loads((campaign_dir / "condor" / "submit.json").read_text())
     assert submit["cluster_id"] == 12345
+
+
+def test_condor_status_reports_submit_host_mismatch_without_querying_local_schedd(
+    tmp_path, monkeypatch
+):
+    spec_file = tmp_path / "Yallfile"
+    spec_file.write_text(
+        "campaign submit-host\n"
+        "backend condor\n\n"
+        "one:\n"
+        "    echo one\n"
+    )
+    campaign_dir = render_condor(load_spec(spec_file), tmp_path / "campaigns")
+    submit_path = campaign_dir / "condor" / "submit.json"
+    submit_path.write_text(
+        json.dumps(
+            {
+                "cluster_id": 12345,
+                "submitter": {
+                    "submit_host": "starsub04.sdcc.bnl.gov",
+                    "schedd_host": "starsub04.sdcc.bnl.gov",
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(
+        "yall_run.condor_backend.socket.getfqdn",
+        lambda: "starsub01.sdcc.bnl.gov",
+    )
+    monkeypatch.setattr(
+        "yall_run.condor_backend.subprocess.run",
+        lambda *args, **kwargs: pytest.fail("must not query the wrong schedd"),
+    )
+
+    status = condor_queue_status(campaign_dir)
+
+    assert status["available"] is False
+    assert status["warning"]["reason"] == "different_submit_host"
+    assert status["warning"]["expected_submit_host"] == "starsub04.sdcc.bnl.gov"
 
 
 def test_failed_condor_submission_does_not_mark_campaign_started(tmp_path, monkeypatch):

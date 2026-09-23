@@ -278,6 +278,13 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Campaign {data['id']} ({backend})")
                 scheduler = data.get("scheduler") or {}
+                warning = scheduler.get("warning")
+                if warning:
+                    print(
+                        "  scheduler: unavailable; status is from recorded campaign state "
+                        f"(submitted on {warning.get('expected_submit_host', 'unknown')}, "
+                        f"current host {warning.get('current_host', 'unknown')})"
+                    )
                 active_nodes = scheduler.get("nodes", {})
                 for task in data["tasks"]:
                     suffix = ""
@@ -288,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"  {task['name']:<20} {task['state']:<10} "
                         f"attempts={task['attempts']}{suffix}"
                     )
-                if data.get("scheduler") is not None:
+                if data.get("scheduler") is not None and not warning:
                     counts = scheduler.get("counts", {})
                     node_summary = ", ".join(
                         f"{name}={count}" for name, count in sorted(counts.items())

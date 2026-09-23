@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 from typing import Any
 
@@ -34,6 +35,25 @@ _STATUS_NAMES = {
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def _submitter_identity() -> dict[str, str]:
+    """Identify the login/schedd context that submitted a Condor campaign."""
+    host = socket.getfqdn()
+    try:
+        proc = subprocess.run(
+            ["condor_config_val", "SCHEDD_HOST"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        proc = None
+    schedd = ""
+    if proc is not None and proc.returncode == 0:
+        schedd = proc.stdout.strip()
+    return {"submit_host": host, "schedd_host": schedd}
 
 
 def _slug(name: str) -> str:
@@ -194,6 +214,7 @@ def submit_rendered(campaign_dir: str | Path, *, overwrite: bool = False) -> Pat
         "stdout": output,
         "stderr": "",
         "overwrite": bool(overwrite),
+        "submitter": _submitter_identity(),
     }
     match = _CLUSTER_RE.search(output)
     if match:
@@ -224,6 +245,24 @@ def _condor_q(arguments: list[str]) -> subprocess.CompletedProcess[str] | None:
     return proc if proc.returncode == 0 else None
 
 
+def _scheduler_warning(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a diagnostic when status is queried from another login node."""
+    expected = record.get("submitter")
+    if not isinstance(expected, dict):
+        return None
+    expected_host = str(expected.get("submit_host", "")).strip()
+    current_host = socket.getfqdn()
+    if expected_host and expected_host != current_host:
+        return {
+            "available": False,
+            "reason": "different_submit_host",
+            "expected_submit_host": expected_host,
+            "current_host": current_host,
+            "expected_schedd_host": str(expected.get("schedd_host", "")),
+        }
+    return None
+
+
 def condor_queue_status(campaign_dir: str | Path) -> dict[str, Any] | None:
     campaign_dir = logical_absolute(campaign_dir)
     condor_dir = campaign_dir / "condor"
@@ -231,6 +270,15 @@ def condor_queue_status(campaign_dir: str | Path) -> dict[str, Any] | None:
     if not submit_path.exists():
         return None
     record = json.loads(submit_path.read_text())
+    warning = _scheduler_warning(record)
+    if warning is not None:
+        return {
+            "available": False,
+            "cluster_id": int(record.get("cluster_id", 0)),
+            "counts": {},
+            "nodes": {},
+            "warning": warning,
+        }
     cluster_id = record.get("cluster_id")
     if cluster_id is None:
         return None
@@ -279,6 +327,7 @@ def condor_queue_status(campaign_dir: str | Path) -> dict[str, Any] | None:
             counts[state] = counts.get(state, 0) + 1
 
     return {
+        "available": True,
         "cluster_id": cluster_id,
         "dagman": dagman_state,
         "counts": counts,
