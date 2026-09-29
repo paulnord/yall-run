@@ -1,6 +1,9 @@
 campaign root-muon-lifetime
 backend local
 
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+
 # Each run is an independent miniature experiment. All ROOT-dependent commands
 # use the same launcher/environment as the MCMC example.
 simulate-{run}:

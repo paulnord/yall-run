@@ -1,6 +1,9 @@
 campaign golomb-11-branch-and-bound
 backend local
 
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+
 @set WORK golomb-work
 
 # Prepare the shared work area and verify that the example inputs are present.

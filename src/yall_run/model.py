@@ -86,6 +86,16 @@ class CampaignSpec:
     set_values: Tuple[Tuple[str, str], ...] = ()
     preflight: Tuple[Command, ...] = ()
     postflight: Tuple[Command, ...] = ()
+    account_provenance: str = "off"
+    # Retain the recipe choice when a creation-time CLI override is used.
+    account_provenance_recipe: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.account_provenance not in ("off", "full"):
+            raise ValueError("account provenance must be off or full")
+        if (self.account_provenance_recipe is not None
+                and self.account_provenance_recipe not in ("off", "full")):
+            raise ValueError("recipe account provenance must be off or full")
 
 
 def _validate_graph(tasks: list[TaskSpec], base_dir: Path | None = None) -> None:

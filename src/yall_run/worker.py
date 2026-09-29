@@ -21,6 +21,73 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def account_provenance_mode(manifest: dict[str, Any]) -> str:
+    """Read the frozen policy; legacy campaigns default to no new collection."""
+    policy = manifest.get("provenance_policy", {})
+    if not isinstance(policy, dict):
+        raise ValueError("invalid account provenance policy: expected an object")
+    mode = policy.get("accounts", "off")
+    if mode not in ("off", "full"):
+        raise ValueError("account provenance must be off or full")
+    return mode
+
+
+def user_identity(mode: str = "off") -> dict[str, Any]:
+    """Snapshot the current OS account without trusting inherited environment.
+
+    Keep this helper in the standalone worker so installed commands and bundled
+    batch workers use the same implementation. Missing account services must
+    not prevent a scientific task from running. Names describe real/effective
+    process IDs, not the original human behind sudo or a container wrapper.
+    """
+    if mode not in ("off", "full"):
+        raise ValueError("account provenance must be off or full")
+    if mode == "off":
+        # Do not even query OS IDs or import the account database when disabled.
+        return {"recorded": False, "reason": "disabled_by_policy"}
+    result: dict[str, Any] = {
+        "username": None,
+        "effective_username": None,
+        "username_source": None,
+        "effective_username_source": None,
+    }
+    errors: dict[str, str] = {}
+    for field in ("uid", "gid", "euid", "egid"):
+        result[field] = None
+        getter = getattr(os, "get" + field, None)
+        if getter is None:
+            errors[field] = "os.get" + field + " is unavailable"
+            continue
+        try:
+            result[field] = getter()
+        except (OSError, ValueError, NotImplementedError) as exc:
+            errors[field] = str(exc)
+
+    try:
+        import pwd
+    except ImportError:
+        errors["account_lookup"] = "pwd module is unavailable"
+    else:
+        for name_field, id_field in (
+            ("username", "uid"), ("effective_username", "euid")
+        ):
+            identifier = result[id_field]
+            if identifier is None:
+                continue
+            try:
+                name = pwd.getpwuid(identifier).pw_name
+            except KeyError:
+                errors[name_field] = f"no account entry for {id_field}={identifier}"
+            except (OSError, ValueError, OverflowError, NotImplementedError) as exc:
+                errors[name_field] = str(exc)
+            else:
+                result[name_field] = name
+                result[name_field + "_source"] = "pwd.getpwuid"
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(value, indent=2, sort_keys=True) + "\n"
@@ -585,6 +652,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if not manifest_path.exists():
         raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
+    account_mode = account_provenance_mode(manifest)
     task, task_amendments = _effective_task_definition(
         campaign_dir, manifest, task_name
     )
@@ -638,6 +706,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         },
         "execution": {
             "context": "host",
+            "user": user_identity(account_mode),
             "wrapper": wrapper,
             "launch_command": launch_command,
             "started_at": started,

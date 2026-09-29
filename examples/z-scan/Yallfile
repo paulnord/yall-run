@@ -1,6 +1,9 @@
 campaign root-z-likelihood-scan
 backend local
 
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+
 prepare:
     @output data z-work/data.root
     @output raw_png z-work/raw_spectrum.png

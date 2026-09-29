@@ -12,6 +12,77 @@ Named values supplied by the Yallfile, including values imported with `@set` or 
 
 The archived `Yallfile` remains the source recipe used to create that campaign.
 
+## User account provenance
+
+Starting with **0.12.0a7**, OS-account snapshots are **off by default**.
+Choose once at campaign level, before the tasks:
+
+```text
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+```
+
+Use `full` for deliberate operator attribution, or override the recipe at creation:
+
+```bash
+yall-run create --account-provenance full
+```
+
+The explicit CLI choice wins over the Yallfile, which otherwise defaults to `off`.
+The resolved choice is frozen in `campaign.json` at `provenance_policy.accounts`.
+`recipe_accounts` retains the recipe's choice so command-only amendments remain
+possible after a CLI override. Editing the recipe cannot change a frozen policy.
+`plan` displays the recipe policy; `create` and `start` report the resolved policy
+on stderr, preserving create's single-path stdout and structured plan output.
+
+The policy is resolved before preflight and before collecting any identity. The
+same frozen choice governs creation, submission, attempts (including failures
+and retries), local resumes, and local or standalone scheduler lifecycle hooks.
+No live environment variable enables or disables recording on workers.
+
+| Record | Field | Account being recorded when full |
+| --- | --- | --- |
+| `campaign.json` | `creation.user` | Campaign creator |
+| `start.json` | `user` | Initial starter/submitter |
+| `<task>_attempt_NNN/provenance.json` | `execution.user` | Host worker for this attempt |
+
+With `off`, Yall does not query OS-account IDs or the account database. Each
+snapshot instead contains `{"recorded": false, "reason": "disabled_by_policy"}`.
+This distinguishes intentional omission from an unavailable account lookup.
+Invalid modes fail before running work; they never fall back to full collection.
+
+With `full`, snapshots contain `username`, `effective_username`, `uid`, `gid`,
+`euid`, `egid`, and name-lookup source fields. Names come from `pwd.getpwuid`
+using the process's real/effective IDs, not inherited `USER`, `LOGNAME`, or
+`SUDO_USER`. Unavailable values stay null with diagnostics; missing POSIX APIs
+or account databases do not prevent execution. No full account entry is copied.
+
+The submission snapshot is captured before scheduling in `state/start-pending.json`
+and retained at finalization. A legacy pending snapshot without an account stays
+unknown when full recording is selected, rather than being attributed to the
+finalizer. An off campaign always writes the omission marker.
+
+These describe host process accounts, not the human behind sudo/shared accounts
+or a possibly different account inside a payload container. Interpret IDs with
+the hostname. These are observations, not authenticated or tamper-proof auditing.
+
+**This is not an anonymization switch.** Paths, command arguments, logs, scheduler
+records, and application outputs may still identify people. It does not redact
+old records or control what tasks, hooks, wrappers, or the scheduler write.
+Access controls, retention, notices, and review before sharing remain site concerns.
+Redacted export is a separate feature and is not implemented by this switch.
+
+```bash
+jq '.provenance_policy, .creation.user' "$CAMPAIGN/campaign.json"
+jq '.user' "$CAMPAIGN/start.json"
+jq '.execution.user' "$CAMPAIGN"/*_attempt_*/provenance.json
+```
+
+For legacy campaigns lacking a policy, updated code defaults to off for additional
+snapshots. Existing history is not erased or backfilled. Already archived workers
+and hook runners are unchanged by upgrading an installation; create a fresh
+campaign for consistent policy enforcement. SQL/CSV exports are not anonymized.
+
 ## Attempt provenance
 
 Each task attempt has two distinct records:
@@ -36,6 +107,7 @@ Each task attempt has two distinct records:
 - declared outputs
 - requested resources
 - execution host, kernel, architecture, CPU identity, and CPU affinity
+- executing host account and real/effective user and group IDs
 - selected runtime environment values that can affect threading or numerical execution
 - common POSIX resource limits
 - host Python version and interpreter path

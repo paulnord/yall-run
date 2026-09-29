@@ -18,7 +18,7 @@ from . import __version__
 from .execution import archive_wrapper
 from .model import CampaignSpec, TaskSpec
 from .paths import logical_absolute, logical_cwd
-from .worker import run_task
+from .worker import account_provenance_mode, run_task, user_identity
 from .walltime import effective_walltime
 
 
@@ -279,6 +279,7 @@ def prepare_campaign_start(
     campaign_dir: str | Path, *, overwrite: bool = False
 ) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
+    account_mode = account_provenance_mode(manifest)
     _validate_unstarted(campaign_dir, manifest)
 
     conflicts = _existing_declared_outputs(
@@ -292,6 +293,9 @@ def prepare_campaign_start(
         raise ValueError(f"campaign start is already in progress: {campaign_dir}")
     _write_json(pending_path, {
         "requested_at": _utc_now(),
+        "hostname": platform.node(),
+        "provenance_policy": {"accounts": account_mode},
+        "user": user_identity(account_mode),
         "overwrite": bool(overwrite),
     })
     return campaign_dir
@@ -306,10 +310,18 @@ def cancel_prepared_start(campaign_dir: str | Path) -> None:
 
 def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path:
     campaign_dir, manifest = campaign_manifest(campaign_dir)
+    account_mode = account_provenance_mode(manifest)
     pending_path = _start_pending_path(campaign_dir)
     if pending_path.is_file():
         pending = _read_json(pending_path)
         overwrite = bool(pending.get("overwrite", overwrite))
+        # Preserve the submitting process's snapshot, not the account that
+        # happens to finalize the record. Legacy pending records stay unknown.
+        if ("provenance_policy" in pending
+                and account_provenance_mode(pending) != account_mode):
+            raise ValueError("account provenance policy changed during submission")
+        start_user = user_identity("off") if account_mode == "off" else pending.get("user")
+        start_hostname = pending.get("hostname")
         start_path = campaign_dir / "start.json"
         if start_path.exists():
             previous = _read_json(start_path)
@@ -317,9 +329,14 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
             raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
     else:
         _validate_unstarted(campaign_dir, manifest)
+        start_user = user_identity(account_mode)
+        start_hostname = platform.node()
 
     _write_json(campaign_dir / "start.json", {
         "started_at": _utc_now(),
+        "hostname": start_hostname,
+        "provenance_policy": {"accounts": account_mode},
+        "user": start_user,
         "backend": manifest.get("backend", "local"),
         "execution": manifest.get("execution", {}),
         "overwrite": bool(overwrite),
@@ -365,8 +382,10 @@ def normalized_task_definition(
 def _run_hook(
     commands: tuple[Any, ...], campaign_dir: Path, *, hook: str,
     cwd: Path, workflow_dir: Path | None = None, require_success: bool = True,
+    account_provenance: str = "off",
 ) -> list[dict[str, Any]]:
     """Run a host-side lifecycle hook and archive one record per command."""
+    account_mode = account_provenance_mode({"provenance_policy": {"accounts": account_provenance}})
     records = []
     for index, command in enumerate(commands, 1):
         directory = campaign_dir / hook / f"{index:03d}"
@@ -378,6 +397,7 @@ def _run_hook(
             "cwd": str(cwd),
             "hook": hook,
             "hostname": platform.node(),
+            "user": user_identity(account_mode),
             "state": "running",
             "started_at": _utc_now(),
             "returncode": None,
@@ -424,7 +444,8 @@ def _run_hook(
 
 def _run_preflight(spec: CampaignSpec, campaign_dir: Path) -> list[dict[str, Any]]:
     """Run host setup before a launchable campaign manifest exists."""
-    return _run_hook(spec.preflight, campaign_dir, hook="preflight", cwd=spec.source.parent)
+    return _run_hook(spec.preflight, campaign_dir, hook="preflight", cwd=spec.source.parent,
+                     account_provenance=spec.account_provenance)
 
 
 def run_postflight(campaign_dir: str | Path) -> Path:
@@ -445,6 +466,7 @@ def run_postflight(campaign_dir: str | Path) -> Path:
     records = _run_hook(
         commands, campaign_dir, hook="postflight", cwd=campaign_dir,
         workflow_dir=workflow_dir,
+        account_provenance=account_provenance_mode(manifest),
     )
     _write_json(campaign_dir / "postflight.json", {
         "started_at": records[0]["started_at"] if records else _utc_now(),
@@ -484,6 +506,7 @@ def create_campaign(
     (campaign_dir / "Yallfile").write_bytes(source_bytes)
     launch_cwd = logical_cwd()
     created_at = _utc_now()
+    creation_user = user_identity(spec.account_provenance)
     workflow_cwd = spec.source.parent
     preflight = _run_preflight(spec, campaign_dir)
     wrapper = archive_wrapper(spec, campaign_dir)
@@ -511,6 +534,12 @@ def create_campaign(
         "backend": selected_backend,
         "execution": execution,
         "created_at": created_at,
+        "provenance_policy": {
+            "accounts": spec.account_provenance,
+            "recipe_accounts": (spec.account_provenance_recipe
+                                if spec.account_provenance_recipe is not None
+                                else spec.account_provenance),
+        },
         "yall_version": __version__,
         "spec_source": str(spec.source),
         "spec_archive": {
@@ -527,6 +556,7 @@ def create_campaign(
         "tasks": frozen_tasks,
         "creation": {
             "hostname": platform.node(),
+            "user": creation_user,
             "platform": platform.platform(),
             "python": sys.version,
             "cwd": str(launch_cwd),
@@ -840,6 +870,7 @@ def resume_local(campaign_dir: str | Path, *, reason: str | None = None,
     campaign_dir, manifest = campaign_manifest(campaign_dir)
     if manifest.get("backend", "local") != "local":
         raise ValueError("resume currently supports local campaigns only")
+    account_mode = account_provenance_mode(manifest)
     if not (campaign_dir / "start.json").is_file():
         raise ValueError("cannot resume a campaign that has not been started")
 
@@ -886,6 +917,8 @@ def resume_local(campaign_dir: str | Path, *, reason: str | None = None,
     resume_path = _next_resume_path(campaign_dir)
     record = {
         "started_at": _utc_now(),
+        "hostname": platform.node(),
+        "user": user_identity(account_mode),
         "backend": "local",
         "reason": reason,
         "initial_counts": initial["counts"],
