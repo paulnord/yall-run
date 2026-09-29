@@ -14,55 +14,74 @@ The archived `Yallfile` remains the source recipe used to create that campaign.
 
 ## User account provenance
 
-Starting with **0.12.0a7**, Yall records separate OS-account snapshots for the
-process that creates the campaign, the process that starts/submits it, and the
-host worker that executes each attempt:
+Starting with **0.12.0a7**, OS-account snapshots are **off by default**.
+Choose once at campaign level, before the tasks:
 
-| Record | Field | Account being recorded |
+```text
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+```
+
+Use `full` for deliberate operator attribution, or override the recipe at creation:
+
+```bash
+yall-run create --account-provenance full
+```
+
+The explicit CLI choice wins over the Yallfile, which otherwise defaults to `off`.
+The resolved choice is frozen in `campaign.json` at `provenance_policy.accounts`.
+`recipe_accounts` retains the recipe's choice so command-only amendments remain
+possible after a CLI override. Editing the recipe cannot change a frozen policy.
+`plan` displays the recipe policy; `create` and `start` report the resolved policy
+on stderr, preserving create's single-path stdout and structured plan output.
+
+The policy is resolved before preflight and before collecting any identity. The
+same frozen choice governs creation, submission, attempts (including failures
+and retries), local resumes, and local or standalone scheduler lifecycle hooks.
+No live environment variable enables or disables recording on workers.
+
+| Record | Field | Account being recorded when full |
 | --- | --- | --- |
 | `campaign.json` | `creation.user` | Campaign creator |
 | `start.json` | `user` | Initial starter/submitter |
 | `<task>_attempt_NNN/provenance.json` | `execution.user` | Host worker for this attempt |
 
-Each snapshot contains `username`, `uid`, `gid`, `euid`, `egid`, and
-`effective_username`. The numeric IDs come from the process's OS APIs;
-`username` is resolved from the real UID and `effective_username` from the
-effective UID using `pwd.getpwuid`. The corresponding `username_source` and
-`effective_username_source` fields identify that lookup. Yall does not trust
-`USER`, `LOGNAME`, or `SUDO_USER` as evidence of the executing account.
+With `off`, Yall does not query OS-account IDs or the account database. Each
+snapshot instead contains `{"recorded": false, "reason": "disabled_by_policy"}`.
+This distinguishes intentional omission from an unavailable account lookup.
+Invalid modes fail before running work; they never fall back to full collection.
 
-The account fields are collected independently, so a missing account-database
-entry does not lose the numeric IDs. Unavailable values are `null`, with an
-`errors` mapping explaining failures. Platforms without the POSIX APIs or
-`pwd` can still execute tasks; Yall records unknown values rather than
-inventing a name from environment variables. Only account names and IDs are
-recorded, not password fields or full account-database entries.
+With `full`, snapshots contain `username`, `effective_username`, `uid`, `gid`,
+`euid`, `egid`, and name-lookup source fields. Names come from `pwd.getpwuid`
+using the process's real/effective IDs, not inherited `USER`, `LOGNAME`, or
+`SUDO_USER`. Unavailable values stay null with diagnostics; missing POSIX APIs
+or account databases do not prevent execution. No full account entry is copied.
 
-The submitter snapshot is frozen in `state/start-pending.json` before submission
-and carried into `start.json` after acceptance. Finalization does not replace
-it with a different account. An older pending record without account information
-keeps `user: null`. Creation/start snapshots are not overwritten by task attempts.
-Local resume records and individual preflight/postflight results also carry
-independent `user` snapshots.
+The submission snapshot is captured before scheduling in `state/start-pending.json`
+and retained at finalization. A legacy pending snapshot without an account stays
+unknown when full recording is selected, rather than being attributed to the
+finalizer. An off campaign always writes the omission marker.
 
-These are **host process accounts**, not proof of the original human behind
-`sudo`, a shared account, or a scheduler. A wrapper may change the payload's
-account or container UID mapping; `execution.user` does not claim to measure
-that inner identity. Interpret numeric IDs with the accompanying hostname.
-The records are provenance, not authenticated or tamper-proof audit logs.
+These describe host process accounts, not the human behind sudo/shared accounts
+or a possibly different account inside a payload container. Interpret IDs with
+the hostname. These are observations, not authenticated or tamper-proof auditing.
 
-Inspect the three primary snapshots with:
+**This is not an anonymization switch.** Paths, command arguments, logs, scheduler
+records, and application outputs may still identify people. It does not redact
+old records or control what tasks, hooks, wrappers, or the scheduler write.
+Access controls, retention, notices, and review before sharing remain site concerns.
+Redacted export is a separate feature and is not implemented by this switch.
 
 ```bash
-jq '.creation.user' "$CAMPAIGN/campaign.json"
+jq '.provenance_policy, .creation.user' "$CAMPAIGN/campaign.json"
 jq '.user' "$CAMPAIGN/start.json"
 jq '.execution.user' "$CAMPAIGN"/*_attempt_*/provenance.json
 ```
 
-Existing campaign history is not backfilled from file ownership, environment
-variables, or the current account. Already archived workers are unchanged by a
-package upgrade; create a fresh campaign to use the new worker. The new fields
-are additive and older records without them remain readable.
+For legacy campaigns lacking a policy, updated code defaults to off for additional
+snapshots. Existing history is not erased or backfilled. Already archived workers
+and hook runners are unchanged by upgrading an installation; create a fresh
+campaign for consistent policy enforcement. SQL/CSV exports are not anonymized.
 
 ## Attempt provenance
 

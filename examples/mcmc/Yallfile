@@ -1,6 +1,9 @@
 campaign pyroot-langau-mcmc
 backend local
 
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+
 # run-pyroot.sh uses an existing local PyROOT when available, otherwise it
 # enters the standard EIC eic_xl container (CVMFS by default at BNL/JLab).
 

@@ -43,7 +43,7 @@ def read(path):
 def spec(tmp_path, backend="local", extra="", command="/usr/bin/true"):
     path = tmp_path / "Yallfile"
     path.write_text(
-        f"campaign account-test\nbackend {backend}\n\none:\n"
+        f"campaign account-test\nbackend {backend}\n%account-provenance full\n\none:\n"
         + extra + f"    {command}\n"
     )
     return load_spec(path)
@@ -53,7 +53,7 @@ def test_os_accounts_override_environment_and_distinguish_effective_ids(monkeypa
     for name in ("USER", "LOGNAME", "USERNAME", "SUDO_USER"):
         monkeypatch.setenv(name, "inherited-submitter-not-worker")
     fake_accounts(monkeypatch)
-    result = worker.user_identity()
+    result = worker.user_identity("full")
     assert result == {
         "username": "alice", "effective_username": "service",
         "username_source": "pwd.getpwuid",
@@ -69,7 +69,7 @@ def test_account_lookup_failure_keeps_numeric_ids(monkeypatch, error):
         raise error("account service unavailable")
     fake_accounts(monkeypatch, fail)
     monkeypatch.setenv("USER", "do-not-substitute-me")
-    result = worker.user_identity()
+    result = worker.user_identity("full")
     assert result["uid"] == 1001
     assert result["euid"] == 2002
     assert result["username"] is None
@@ -81,7 +81,7 @@ def test_account_lookup_failure_keeps_numeric_ids(monkeypatch, error):
 def test_missing_pwd_module_is_nonfatal(monkeypatch):
     fake_accounts(monkeypatch)
     monkeypatch.setitem(sys.modules, "pwd", None)
-    result = worker.user_identity()
+    result = worker.user_identity("full")
     assert result["uid"] == 1001
     assert result["username"] is None
     assert "account_lookup" in result["errors"]
@@ -90,7 +90,7 @@ def test_missing_pwd_module_is_nonfatal(monkeypatch):
 def test_missing_posix_apis_are_explicitly_unknown(monkeypatch):
     monkeypatch.setattr(worker, "os", SimpleNamespace())
     monkeypatch.setitem(sys.modules, "pwd", None)
-    result = worker.user_identity()
+    result = worker.user_identity("full")
     assert all(result[field] is None for field in ("uid", "gid", "euid", "egid", "username", "effective_username"))
     assert {"uid", "gid", "euid", "egid", "account_lookup"} <= set(result["errors"])
 
@@ -101,7 +101,7 @@ def test_an_unavailable_id_does_not_erase_other_ids(monkeypatch, error):
     def fail():
         raise error("uid unavailable")
     monkeypatch.setattr(worker.os, "getuid", fail)
-    result = worker.user_identity()
+    result = worker.user_identity("full")
     assert result["uid"] is None
     assert result["username"] is None
     assert result["euid"] == 2002
@@ -112,18 +112,18 @@ def test_an_unavailable_id_does_not_erase_other_ids(monkeypatch, error):
 @pytest.mark.parametrize("backend", ["local", "condor", "slurm", "pbs"])
 def test_creator_submitter_and_worker_are_independent(tmp_path, monkeypatch, backend):
     creator, submitter, executor = identity("alice", 1001), identity("bob", 1002), identity("batch", 1003)
-    monkeypatch.setattr(campaign, "user_identity", lambda: creator)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": creator)
     directory = campaign.create_campaign(spec(tmp_path, backend), tmp_path / "campaigns")
     original_manifest = (directory / "campaign.json").read_bytes()
     assert read(directory / "campaign.json")["creation"]["user"] == creator
 
-    monkeypatch.setattr(campaign, "user_identity", lambda: submitter)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": submitter)
     monkeypatch.setattr(campaign.platform, "node", lambda: "submission-host")
     campaign.prepare_campaign_start(directory)
     assert read(directory / "state/start-pending.json")["user"] == submitter
 
     # Finalization must use the already frozen request, even in another context.
-    monkeypatch.setattr(campaign, "user_identity", lambda: identity("finalizer", 9999))
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": identity("finalizer", 9999))
     monkeypatch.setattr(campaign.platform, "node", lambda: "different-host")
     campaign.begin_campaign(directory)
     start_bytes = (directory / "start.json").read_bytes()
@@ -131,7 +131,7 @@ def test_creator_submitter_and_worker_are_independent(tmp_path, monkeypatch, bac
     assert read(directory / "start.json")["hostname"] == "submission-host"
     assert not (directory / "state/start-pending.json").exists()
 
-    monkeypatch.setattr(worker, "user_identity", lambda: executor)
+    monkeypatch.setattr(worker, "user_identity", lambda mode="full": executor)
     assert worker.run_task(directory, "one") == 0
     provenance = read(directory / "one_attempt_001/provenance.json")
     assert provenance["execution"]["user"] == executor
@@ -143,7 +143,7 @@ def test_creator_submitter_and_worker_are_independent(tmp_path, monkeypatch, bac
 def test_begin_without_preparation_captures_current_account(tmp_path, monkeypatch):
     directory = campaign.create_campaign(spec(tmp_path), tmp_path / "campaigns")
     submitter = identity("bob", 1002)
-    monkeypatch.setattr(campaign, "user_identity", lambda: submitter)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": submitter)
     campaign.begin_campaign(directory)
     assert read(directory / "start.json")["user"] == submitter
 
@@ -151,7 +151,7 @@ def test_begin_without_preparation_captures_current_account(tmp_path, monkeypatc
 def test_legacy_pending_request_is_not_misattributed(tmp_path, monkeypatch):
     directory = campaign.create_campaign(spec(tmp_path), tmp_path / "campaigns")
     (directory / "state/start-pending.json").write_text('{"overwrite": false}')
-    def unexpected():
+    def unexpected(*args):
         raise AssertionError("Do not invent the old submitter from the current account")
     monkeypatch.setattr(campaign, "user_identity", unexpected)
     campaign.begin_campaign(directory)
@@ -161,11 +161,11 @@ def test_legacy_pending_request_is_not_misattributed(tmp_path, monkeypatch):
 
 def test_cancelled_start_can_capture_a_different_submitter(tmp_path, monkeypatch):
     directory = campaign.create_campaign(spec(tmp_path), tmp_path / "campaigns")
-    monkeypatch.setattr(campaign, "user_identity", lambda: identity("alice", 1001))
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": identity("alice", 1001))
     campaign.prepare_campaign_start(directory)
     campaign.cancel_prepared_start(directory)
     submitter = identity("bob", 1002)
-    monkeypatch.setattr(campaign, "user_identity", lambda: submitter)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": submitter)
     campaign.prepare_campaign_start(directory)
     campaign.begin_campaign(directory)
     assert read(directory / "start.json")["user"] == submitter
@@ -185,7 +185,7 @@ def test_failed_attempt_still_records_execution_account(tmp_path, monkeypatch, k
         command = "/usr/bin/false"
     directory = campaign.create_campaign(spec(tmp_path, extra=extra, command=command), tmp_path / "campaigns")
     executor = identity("batch", 1003)
-    monkeypatch.setattr(worker, "user_identity", lambda: executor)
+    monkeypatch.setattr(worker, "user_identity", lambda mode="full": executor)
     assert worker.run_task(directory, "one") != 0
     assert read(directory / "one_attempt_001/provenance.json")["execution"]["user"] == executor
     assert read(directory / "one_attempt_001/attempt.json")["failure"]["kind"] == kind
@@ -194,10 +194,10 @@ def test_failed_attempt_still_records_execution_account(tmp_path, monkeypatch, k
 def test_each_attempt_has_a_fresh_snapshot(tmp_path, monkeypatch):
     directory = campaign.create_campaign(spec(tmp_path, command="/usr/bin/false"), tmp_path / "campaigns")
     first, second = identity("worker-a", 1001), identity("worker-b", 1002)
-    monkeypatch.setattr(worker, "user_identity", lambda: first)
+    monkeypatch.setattr(worker, "user_identity", lambda mode="full": first)
     worker.run_task(directory, "one")
     original = (directory / "one_attempt_001/provenance.json").read_bytes()
-    monkeypatch.setattr(worker, "user_identity", lambda: second)
+    monkeypatch.setattr(worker, "user_identity", lambda mode="full": second)
     worker.run_task(directory, "one")
     assert read(directory / "one_attempt_002/provenance.json")["execution"]["user"] == second
     assert (directory / "one_attempt_001/provenance.json").read_bytes() == original
@@ -219,7 +219,7 @@ def test_bundled_worker_captures_account_without_installed_package(tmp_path, bac
     directory = renderer(spec(tmp_path, backend), tmp_path / "campaigns")
     bundled = directory / backend / "yall_worker.py"
     assert bundled.is_file()
-    expected = worker.user_identity()
+    expected = worker.user_identity("full")
     environment = os.environ.copy()
     environment.update(USER="spoofed", LOGNAME="spoofed", SUDO_USER="spoofed")
     result = subprocess.run(
@@ -236,7 +236,7 @@ def test_local_resume_records_new_invoker_without_replacing_start(tmp_path, monk
     campaign.begin_campaign(directory)
     original_start = (directory / "start.json").read_bytes()
     resumer = identity("resumer", 4004)
-    monkeypatch.setattr(campaign, "user_identity", lambda: resumer)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": resumer)
     campaign.resume_local(directory, reason="account provenance test")
     assert read(directory / "resumes/resume_001.json")["user"] == resumer
     assert (directory / "start.json").read_bytes() == original_start
@@ -245,8 +245,8 @@ def test_local_resume_records_new_invoker_without_replacing_start(tmp_path, monk
 @pytest.mark.parametrize("hook", ["preflight", "postflight"])
 def test_hook_account_is_recorded(tmp_path, monkeypatch, hook):
     actor = identity("hook-runner", 5005)
-    monkeypatch.setattr(campaign, "user_identity", lambda: actor)
-    records = campaign._run_hook((("/usr/bin/true",),), tmp_path, hook=hook, cwd=tmp_path)
+    monkeypatch.setattr(campaign, "user_identity", lambda mode="full": actor)
+    records = campaign._run_hook((("/usr/bin/true",),), tmp_path, hook=hook, cwd=tmp_path, account_provenance="full")
     assert records[0]["user"] == actor
     assert read(tmp_path / hook / "001/result.json")["user"] == actor
 

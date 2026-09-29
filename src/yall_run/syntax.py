@@ -380,8 +380,8 @@ def _hook_command(text: str, variables: Mapping[str, str], lineno: int, hook: st
     return command
 
 
-def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
-                               Tuple[Command, ...], List[_TaskTemplate]]:
+def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec, str,
+                               Tuple[Command, ...], Tuple[Command, ...], List[_TaskTemplate]]:
     campaign_name: str | None = None
     backend = "local"
     condor_cpus = 1
@@ -389,6 +389,8 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
     condor_disk = "2GB"
     condor_walltime: int | None = None
     condor_getenv = True
+    account_provenance = "off"
+    account_provenance_seen = False
     payload_wrapper: str | None = None
     payload_wrapper_args: Tuple[str, ...] = ()
     wrapper_lineno = 0
@@ -495,6 +497,15 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
                     condor_walltime = _walltime(values[0], lineno)
                 elif directive == "getenv" and len(values) == 1:
                     condor_getenv = _parse_bool(values[0], lineno)
+                elif directive == "account-provenance":
+                    if tasks:
+                        raise ValueError(f"line {lineno}: %account-provenance must appear before tasks")
+                    if account_provenance_seen:
+                        raise ValueError(f"line {lineno}: duplicate %account-provenance directive")
+                    if len(values) != 1 or values[0] not in ("off", "full"):
+                        raise ValueError(f"line {lineno}: %account-provenance requires off or full")
+                    account_provenance = values[0]
+                    account_provenance_seen = True
                 elif directive == "wrapper":
                     if not values:
                         raise ValueError(f"line {lineno}: %wrapper needs an executable path")
@@ -679,7 +690,7 @@ def _parse(text: str) -> Tuple[str, str, CondorSpec, ExecutionSpec,
                       for lineno, text in preflight_templates)
     postflight = tuple(_hook_command(text, variables, lineno, "postflight")
                        for lineno, text in postflight_templates)
-    return campaign_name, backend, condor, execution, preflight, postflight, tasks
+    return campaign_name, backend, condor, execution, account_provenance, preflight, postflight, tasks
 
 
 def _family_bindings(
@@ -964,7 +975,7 @@ def _instantiate(
 
 
 def load_yall_spec(source: Path) -> CampaignSpec:
-    campaign_name, backend, condor, execution, preflight, postflight, templates = _parse(source.read_text())
+    campaign_name, backend, condor, execution, account_provenance, preflight, postflight, templates = _parse(source.read_text())
     template_map: Dict[str, _TaskTemplate] = {}
     for template in templates:
         if template.name in template_map:
@@ -988,6 +999,7 @@ def load_yall_spec(source: Path) -> CampaignSpec:
         backend=backend,
         condor=condor,
         execution=execution,
+        account_provenance=account_provenance,
         preflight=preflight,
         postflight=postflight,
     )

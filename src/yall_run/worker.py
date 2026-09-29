@@ -21,7 +21,18 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def user_identity() -> dict[str, Any]:
+def account_provenance_mode(manifest: dict[str, Any]) -> str:
+    """Read the frozen policy; legacy campaigns default to no new collection."""
+    policy = manifest.get("provenance_policy", {})
+    if not isinstance(policy, dict):
+        raise ValueError("invalid account provenance policy: expected an object")
+    mode = policy.get("accounts", "off")
+    if mode not in ("off", "full"):
+        raise ValueError("account provenance must be off or full")
+    return mode
+
+
+def user_identity(mode: str = "off") -> dict[str, Any]:
     """Snapshot the current OS account without trusting inherited environment.
 
     Keep this helper in the standalone worker so installed commands and bundled
@@ -29,6 +40,11 @@ def user_identity() -> dict[str, Any]:
     not prevent a scientific task from running. Names describe real/effective
     process IDs, not the original human behind sudo or a container wrapper.
     """
+    if mode not in ("off", "full"):
+        raise ValueError("account provenance must be off or full")
+    if mode == "off":
+        # Do not even query OS IDs or import the account database when disabled.
+        return {"recorded": False, "reason": "disabled_by_policy"}
     result: dict[str, Any] = {
         "username": None,
         "effective_username": None,
@@ -636,6 +652,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     if not manifest_path.exists():
         raise ValueError(f"not a yall campaign: {campaign_dir}")
     manifest = _read_json(manifest_path)
+    account_mode = account_provenance_mode(manifest)
     task, task_amendments = _effective_task_definition(
         campaign_dir, manifest, task_name
     )
@@ -689,7 +706,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         },
         "execution": {
             "context": "host",
-            "user": user_identity(),
+            "user": user_identity(account_mode),
             "wrapper": wrapper,
             "launch_command": launch_command,
             "started_at": started,

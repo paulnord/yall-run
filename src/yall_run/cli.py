@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 import shlex
 import shutil
@@ -29,7 +29,7 @@ from .recovery import (
     resume_campaign,
 )
 from .status_view import render_status
-from .worker import run_task
+from .worker import account_provenance_mode, run_task
 from .walltime import effective_walltime, format_walltime
 
 
@@ -86,6 +86,11 @@ def _parser() -> argparse.ArgumentParser:
         help="directory that will contain newly created campaign directories",
     )
     create.add_argument("--backend", choices=("local", "condor", "slurm", "pbs"))
+    create.add_argument(
+        "--account-provenance", choices=("off", "full"),
+        help="override and freeze OS-account recording (default: recipe, otherwise off); "
+             "does not anonymize paths, commands, logs, or scheduler records",
+    )
     create.add_argument(
         "-j",
         "--jobs",
@@ -235,6 +240,7 @@ def _plan_json(spec: object) -> dict[str, object]:
         "name": spec.name,
         "backend": spec.backend,
         "source": str(spec.source),
+        "provenance_policy": {"accounts": spec.account_provenance},
         "execution": asdict(spec.execution),
         "preflight": [
             {"command": command if isinstance(command, str) else list(command),
@@ -297,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_plan_dot(spec))
                 return 0
             print(f"Campaign: {spec.name} (backend={spec.backend})")
+            print(f"Account provenance: {spec.account_provenance}")
             if spec.preflight:
                 print(f"Host preflight (during create, cwd={spec.source.parent}):")
                 for index, command in enumerate(spec.preflight, 1):
@@ -337,9 +344,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.jobs is not None and args.jobs < 1:
                 raise ValueError("-j/--jobs must be positive")
             spec = load_spec(args.spec)
+            if args.account_provenance is not None:
+                spec = replace(spec, account_provenance=args.account_provenance,
+                               account_provenance_recipe=spec.account_provenance)
             backend = args.backend or spec.backend
             if backend != "local" and args.jobs is not None:
                 raise ValueError("-j/--jobs is only valid for the local backend")
+            print(f"Account provenance: {spec.account_provenance}", file=sys.stderr)
             if backend == "condor":
                 cdir = render_condor(spec, args.campaigns_dir)
             elif backend == "slurm":
@@ -361,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "start":
             campaign_dir = _campaign_dir_argument(args.campaign_dir)
             cdir, manifest = campaign_manifest(campaign_dir)
+            print(f"Account provenance: {account_provenance_mode(manifest)}", file=sys.stderr)
             backend = manifest.get("backend", "local")
             if backend == "local":
                 start_local(cdir, overwrite=args.overwrite)

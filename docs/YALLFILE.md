@@ -660,3 +660,21 @@ YALL_PROVENANCE
 `YALL_PROVENANCE` points to that JSON file. Application-specific software may copy or embed it into its native output formats while yall-run remains format-agnostic.
 
 `attempt.json` is completed after execution with the return code, finish time, timing, stdout/stderr paths, pre-launch output observations, and final observed output metadata. A worker-level task stopped by the output guard records failure kind `outputs_exist` and no command return code because the command was never launched.
+
+## Account provenance policy
+
+`%account-provenance off|full` is a campaign-only directive placed before tasks.
+It may appear once. The default is `off`, which skips explicit OS-account
+collection rather than collecting and then filtering it. Use `full` when
+operator attribution is appropriate under the site's privacy policy.
+
+```text
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+```
+
+`yall-run create --account-provenance full` (or `off`) overrides the recipe and
+freezes the resolved choice into the campaign. No start-time or worker-environment
+override is supported. An amendment cannot change the recipe's policy; create
+a new campaign instead. This option does not anonymize paths, commands, logs,
+or scheduler records. See [PROVENANCE.md](PROVENANCE.md#user-account-provenance).

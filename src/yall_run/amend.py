@@ -163,6 +163,10 @@ def _effective_command(
 
 
 def _validate_wrapper(spec: CampaignSpec, manifest: dict[str, Any]) -> None:
+    policy = manifest.get("provenance_policy") or {}
+    recipe_accounts = policy.get("recipe_accounts", policy.get("accounts", "off"))
+    if spec.account_provenance != recipe_accounts:
+        raise ValueError("current Yallfile changes frozen account provenance; create a new campaign")
     frozen = (manifest.get("execution") or {}).get("wrapper")
     current = spec.execution.wrapper
     if current is None:

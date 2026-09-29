@@ -1,6 +1,9 @@
 campaign root-invariant-mass
 backend local
 
+# Set to full to record operator accounts when permitted by your site's privacy policy.
+%account-provenance off
+
 generate-{run}:
     @each config runs/run-{run}.txt
     @output events mass-work/run-{run}.root
