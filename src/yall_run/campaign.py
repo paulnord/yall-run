@@ -18,7 +18,7 @@ from . import __version__
 from .execution import archive_wrapper
 from .model import CampaignSpec, TaskSpec
 from .paths import logical_absolute, logical_cwd
-from .worker import run_task
+from .worker import _account_identity, run_task
 from .walltime import effective_walltime
 
 
@@ -292,6 +292,8 @@ def prepare_campaign_start(
         raise ValueError(f"campaign start is already in progress: {campaign_dir}")
     _write_json(pending_path, {
         "requested_at": _utc_now(),
+        "hostname": platform.node(),
+        "identity": _account_identity(),
         "overwrite": bool(overwrite),
     })
     return campaign_dir
@@ -310,6 +312,10 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
     if pending_path.is_file():
         pending = _read_json(pending_path)
         overwrite = bool(pending.get("overwrite", overwrite))
+        # Attribute the submission to the process that prepared it, not to a
+        # later finalizer. Old pending records have unknown identity.
+        identity = pending.get("identity")
+        hostname = pending.get("hostname")
         start_path = campaign_dir / "start.json"
         if start_path.exists():
             previous = _read_json(start_path)
@@ -317,9 +323,13 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
             raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
     else:
         _validate_unstarted(campaign_dir, manifest)
+        identity = _account_identity()
+        hostname = platform.node()
 
     _write_json(campaign_dir / "start.json", {
         "started_at": _utc_now(),
+        "hostname": hostname,
+        "identity": identity,
         "backend": manifest.get("backend", "local"),
         "execution": manifest.get("execution", {}),
         "overwrite": bool(overwrite),
@@ -484,6 +494,7 @@ def create_campaign(
     (campaign_dir / "Yallfile").write_bytes(source_bytes)
     launch_cwd = logical_cwd()
     created_at = _utc_now()
+    creator_identity = _account_identity()
     workflow_cwd = spec.source.parent
     preflight = _run_preflight(spec, campaign_dir)
     wrapper = archive_wrapper(spec, campaign_dir)
@@ -527,6 +538,7 @@ def create_campaign(
         "tasks": frozen_tasks,
         "creation": {
             "hostname": platform.node(),
+            "identity": creator_identity,
             "platform": platform.platform(),
             "python": sys.version,
             "cwd": str(launch_cwd),

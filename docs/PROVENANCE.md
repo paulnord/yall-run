@@ -12,6 +12,36 @@ Named values supplied by the Yallfile, including values imported with `@set` or 
 
 The archived `Yallfile` remains the source recipe used to create that campaign.
 
+## Account identity
+
+Starting with **0.12.0a7**, canonical JSON records three independent account snapshots:
+
+| Operation | Record | Field |
+| --- | --- | --- |
+| Create the campaign | `campaign.json` | `creation.identity` |
+| Start/submit the campaign | `start.json` | `identity` |
+| Execute a task attempt | `<task>_attempt_NNN/provenance.json` | `execution.identity` |
+
+Each attempt also keeps the same execution snapshot in `attempt.json` at `identity`, including failed attempts. Retrying captures the account for the new attempt without rewriting earlier attempt records. Creation and submission are not inferred from the execution account.
+
+The snapshot contains `username`, `effective_username`, `uid`, `gid`, `euid`, and `egid`, plus `username_source` and `effective_username_source`. On POSIX systems the IDs come from `os.getuid()`, `os.getgid()`, `os.geteuid()`, and `os.getegid()`; account names are resolved with `pwd.getpwuid()`. The group IDs are the process's actual real/effective groups, not the account database's default group. Inherited `USER`, `LOGNAME`, and `SUDO_USER` values do not override POSIX account identity.
+
+Unavailable IDs/names are `null`. Lookup errors are diagnostic fields rather than task failures, so an unmapped UID on a worker still preserves its numeric identity. Where the POSIX UID API is absent, the best-effort name fallback is explicitly labelled `username_source = "getpass.getuser"`; it may come from the environment and is not proof of an effective account. No full environment, password field, home directory, or account-database entry is copied.
+
+Submission identity and hostname are captured before invoking the scheduler, in `state/start-pending.json`, then carried into `start.json`. This preserves the submitter even when a worker starts before the submission call returns. A cancelled submission discards that pending snapshot; a later submission captures its own account. An older pending record with no identity remains unknown rather than being attributed to the finalizing process.
+
+Worker identity describes the **host process running Yall's worker**, before a payload wrapper or container is entered. It does not assert the account inside a container, identify a scheduler's original owner, or reconstruct a human login behind `sudo`/a shared account. Read numeric IDs with the recorded hostname; account namespaces can differ between machines. These are provenance observations, not an authenticated or tamper-proof audit log.
+
+For a newly created and started campaign:
+
+```bash
+jq '.creation.identity' "$CAMPAIGN/campaign.json"
+jq '.identity' "$CAMPAIGN/start.json"
+jq '.execution.identity' "$CAMPAIGN/one_attempt_001/provenance.json"
+```
+
+Use the actual task/attempt directory instead of `one_attempt_001`. Existing campaign records are not retroactively filled from file ownership or the current user. Previously bundled workers also remain unchanged; create fresh campaigns with the new version to capture all three identities. Account snapshots are currently in canonical JSON; dedicated SQLite/CSV account columns are not added by this change.
+
 ## Attempt provenance
 
 Each task attempt has two distinct records:
@@ -36,6 +66,7 @@ Each task attempt has two distinct records:
 - declared outputs
 - requested resources
 - execution host, kernel, architecture, CPU identity, and CPU affinity
+- host worker account identity, including real/effective user and group IDs
 - selected runtime environment values that can affect threading or numerical execution
 - common POSIX resource limits
 - host Python version and interpreter path

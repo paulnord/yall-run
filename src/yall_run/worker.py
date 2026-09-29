@@ -33,6 +33,68 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
+def _account_identity() -> dict[str, Any]:
+    """Snapshot this process's account without relying on inherited USER values.
+
+    Keep this helper standalone: queued workers are copied without the package.
+    Missing IDs/account-database entries are diagnostic, never a launch failure.
+    """
+    result: dict[str, Any] = {
+        "username": None,
+        "effective_username": None,
+        "uid": None,
+        "gid": None,
+        "euid": None,
+        "egid": None,
+        "username_source": None,
+        "effective_username_source": None,
+    }
+    errors: dict[str, str] = {}
+    has_posix_uid = callable(getattr(os, "getuid", None))
+    for name in ("uid", "gid", "euid", "egid"):
+        getter = getattr(os, "get" + name, None)
+        if not callable(getter):
+            continue
+        try:
+            result[name] = int(getter())
+        except (AttributeError, OSError, NotImplementedError, ValueError) as exc:
+            errors[name] = str(exc)
+
+    try:
+        import pwd
+    except ImportError:
+        pwd = None
+
+    if pwd is not None:
+        for id_field, name_field in (("uid", "username"), ("euid", "effective_username")):
+            uid = result[id_field]
+            if uid is None:
+                continue
+            try:
+                result[name_field] = pwd.getpwuid(uid).pw_name
+                result[name_field + "_source"] = "pwd.getpwuid"
+            except (KeyError, OSError, ValueError, OverflowError) as exc:
+                errors[name_field] = str(exc)
+    elif has_posix_uid:
+        errors["username"] = "pwd module unavailable; numeric IDs retained"
+
+    # Non-POSIX platforms may only offer an environment-derived login name.
+    # Label it explicitly, and do not mistake it for an effective UID identity.
+    # On POSIX, a failed lookup must NOT fall back to stale/spoofed USER/LOGNAME.
+    if not has_posix_uid:
+        try:
+            import getpass
+            username = getpass.getuser()
+            if username:
+                result["username"] = username
+                result["username_source"] = "getpass.getuser"
+        except (ImportError, KeyError, OSError) as exc:
+            errors["username"] = str(exc)
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 # The worker is bundled as a standalone file. Do not depend on ClassAd bindings.
 # Only accept literal identity fields; never evaluate ClassAd expressions here.
 _CONDOR_JOB_AD_MAX_BYTES = 1024 * 1024
@@ -603,6 +665,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
     inputs = [_inspect_file(ref) for ref in task.get("inputs", [])]
     started = _utc_now()
     worker_pid = os.getpid()
+    identity = _account_identity()
     task_overwrite = bool(task.get("overwrite", False))
     campaign_overwrite = _campaign_overwrite(campaign_dir)
     scheduler_context = (
@@ -638,6 +701,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         },
         "execution": {
             "context": "host",
+            "identity": identity,
             "wrapper": wrapper,
             "launch_command": launch_command,
             "started_at": started,
@@ -671,6 +735,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "task": task_name,
             "attempt": number,
             "state": "failed",
+            "identity": identity,
             "started_at": started,
             "finished_at": finished,
             "returncode": 2,
@@ -709,6 +774,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
             "task": task_name,
             "attempt": number,
             "state": "failed",
+            "identity": identity,
             "started_at": started,
             "finished_at": finished,
             "returncode": 2,
@@ -735,6 +801,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "task": task_name,
         "attempt": number,
         "state": "running",
+        "identity": identity,
         "started_at": started,
         "worker_pid": worker_pid,
         "command": command,
@@ -814,6 +881,7 @@ def run_task(campaign_dir: str | Path, task_name: str) -> int:
         "task": task_name,
         "attempt": number,
         "state": state,
+        "identity": identity,
         "started_at": started,
         "finished_at": finished,
         "returncode": returncode,
