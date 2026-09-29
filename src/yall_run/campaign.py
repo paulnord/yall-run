@@ -18,7 +18,7 @@ from . import __version__
 from .execution import archive_wrapper
 from .model import CampaignSpec, TaskSpec
 from .paths import logical_absolute, logical_cwd
-from .worker import run_task
+from .worker import run_task, user_identity
 from .walltime import effective_walltime
 
 
@@ -292,6 +292,8 @@ def prepare_campaign_start(
         raise ValueError(f"campaign start is already in progress: {campaign_dir}")
     _write_json(pending_path, {
         "requested_at": _utc_now(),
+        "hostname": platform.node(),
+        "user": user_identity(),
         "overwrite": bool(overwrite),
     })
     return campaign_dir
@@ -310,6 +312,10 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
     if pending_path.is_file():
         pending = _read_json(pending_path)
         overwrite = bool(pending.get("overwrite", overwrite))
+        # Preserve the submitting process's snapshot, not the account that
+        # happens to finalize the record. Legacy pending records stay unknown.
+        start_user = pending.get("user")
+        start_hostname = pending.get("hostname")
         start_path = campaign_dir / "start.json"
         if start_path.exists():
             previous = _read_json(start_path)
@@ -317,9 +323,13 @@ def begin_campaign(campaign_dir: str | Path, *, overwrite: bool = False) -> Path
             raise ValueError(f"campaign has already been started ({when}): {campaign_dir}")
     else:
         _validate_unstarted(campaign_dir, manifest)
+        start_user = user_identity()
+        start_hostname = platform.node()
 
     _write_json(campaign_dir / "start.json", {
         "started_at": _utc_now(),
+        "hostname": start_hostname,
+        "user": start_user,
         "backend": manifest.get("backend", "local"),
         "execution": manifest.get("execution", {}),
         "overwrite": bool(overwrite),
@@ -378,6 +388,7 @@ def _run_hook(
             "cwd": str(cwd),
             "hook": hook,
             "hostname": platform.node(),
+            "user": user_identity(),
             "state": "running",
             "started_at": _utc_now(),
             "returncode": None,
@@ -484,6 +495,7 @@ def create_campaign(
     (campaign_dir / "Yallfile").write_bytes(source_bytes)
     launch_cwd = logical_cwd()
     created_at = _utc_now()
+    creation_user = user_identity()
     workflow_cwd = spec.source.parent
     preflight = _run_preflight(spec, campaign_dir)
     wrapper = archive_wrapper(spec, campaign_dir)
@@ -527,6 +539,7 @@ def create_campaign(
         "tasks": frozen_tasks,
         "creation": {
             "hostname": platform.node(),
+            "user": creation_user,
             "platform": platform.platform(),
             "python": sys.version,
             "cwd": str(launch_cwd),
@@ -886,6 +899,8 @@ def resume_local(campaign_dir: str | Path, *, reason: str | None = None,
     resume_path = _next_resume_path(campaign_dir)
     record = {
         "started_at": _utc_now(),
+        "hostname": platform.node(),
+        "user": user_identity(),
         "backend": "local",
         "reason": reason,
         "initial_counts": initial["counts"],
