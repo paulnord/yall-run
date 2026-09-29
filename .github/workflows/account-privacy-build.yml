@@ -1,0 +1,37 @@
+name: Stage account privacy patch
+on:
+  push:
+    branches: [automation/account-privacy-build-20260929]
+permissions:
+  contents: write
+jobs:
+  stage:
+    if: github.repository == 'paulnord/yall-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Apply surgical edits to the reviewed base
+        run: |
+          cp .development/apply_account_privacy.py /tmp/apply_account_privacy.py
+          cp .development/test_account_policy.py /tmp/test_account_policy.py
+          git checkout --detach c72b48726cc61cf06a9da5b054178002c8ff2e47
+          python /tmp/apply_account_privacy.py
+          cp /tmp/test_account_policy.py tests/test_account_policy.py
+          git diff --check
+          python -m pip install -e . pytest
+          pytest -q
+      - name: Publish tested candidate on an isolated result branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests docs examples
+          git diff --cached --stat
+          git commit -m 'Make account provenance opt-in with a frozen campaign policy'
+          git push origin "HEAD:refs/heads/automation/account-privacy-result-${GITHUB_RUN_ID}"
+          echo "RESULT_SHA=$(git rev-parse HEAD)"
