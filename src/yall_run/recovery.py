@@ -440,8 +440,13 @@ def _output_fingerprint(raw: str) -> dict[str, Any]:
     parents = []
     for parent in path.parents:
         info = parent.lstat()
+        is_link = stat.S_ISLNK(info.st_mode)
+        # A recreated symlink can reuse its inode. Its change timestamp still
+        # distinguishes replacement; ordinary directory timestamps cannot be
+        # frozen because staging legitimately adds siblings beneath them.
         parents.append([str(parent), info.st_dev, info.st_ino, info.st_mode,
-                        os.readlink(parent) if stat.S_ISLNK(info.st_mode) else None])
+                        os.readlink(parent) if is_link else None,
+                        info.st_ctime_ns if is_link else None])
     digest = hashlib.sha256()
 
     def visit(item: Path) -> None:

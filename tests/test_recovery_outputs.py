@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -262,7 +263,9 @@ def test_fingerprint_catches_tree_and_parent_changes(campaign, tmp_path, monkeyp
             (output / "data.root").write_text("changed")
             assert output.stat().st_mtime_ns == before
         else:
-            alias.unlink()
+            # Retain the original inode so this integration case is independent
+            # of the filesystem's inode reuse policy.
+            alias.rename(tmp_path / "previous-alias")
             alias.symlink_to(output, target_is_directory=True)
         return result
 
@@ -380,3 +383,25 @@ def test_archived_worker_restarts_after_partial_output_cleanup(tmp_path, monkeyp
     assert worker.read_bytes() == worker_before
     assert (c / "convert_attempt_001" / "attempt.json").read_bytes() == old_attempt
     assert r._read(c / "state" / "convert.json")["attempts"] == 2
+
+
+def test_parent_symlink_fingerprint_detects_reused_inode(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "data.root").write_text("partial")
+    alias = tmp_path / "alias"
+    alias.symlink_to(target, target_is_directory=True)
+    path = str(alias / "data.root")
+    before = r._output_fingerprint(path)
+    original = Path.lstat
+    previous = alias.lstat()
+
+    def reused_inode(item, *args, **kwargs):
+        if item == alias:
+            return SimpleNamespace(st_dev=previous.st_dev, st_ino=previous.st_ino,
+                                   st_mode=previous.st_mode,
+                                   st_ctime_ns=previous.st_ctime_ns + 1)
+        return original(item, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", reused_inode)
+    assert r._output_fingerprint(path) != before
