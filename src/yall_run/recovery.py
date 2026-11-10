@@ -17,8 +17,8 @@ import sys
 from pathlib import Path
 import re
 import shlex
-import shutil
 import socket
+import stat
 import subprocess
 from typing import Any
 
@@ -391,6 +391,80 @@ def _resume_lock(cdir: Path):
         lock.rmdir()
 
 
+def _path_forms(path: str | Path) -> set[Path]:
+    logical = Path(os.path.abspath(str(path)))
+    return {logical, logical.resolve()}
+
+
+def _overlap(left: str | Path, right: str | Path) -> bool:
+    return any(a == b or a in b.parents or b in a.parents
+               for a in _path_forms(left) for b in _path_forms(right))
+
+
+def _validate_cleanup(cdir: Path, tasks: dict[str, Any], completed: list[str],
+                      paths: list[str]) -> None:
+    """Never let a directory output swallow retained data or campaign evidence."""
+    if not paths:
+        return
+    protected = {str(cdir)}
+    for name, task in tasks.items():
+        if name in completed:
+            protected.update(ref["path"] for ref in task.get("outputs", []))
+        ancestors: set[str] = set()
+        pending = list(task.get("parents", []))
+        while pending:
+            parent = pending.pop()
+            if parent not in ancestors:
+                ancestors.add(parent)
+                pending.extend(tasks[parent].get("parents", []))
+        generated = {ref["path"] for parent in ancestors if parent not in completed
+                     for ref in tasks[parent].get("outputs", [])}
+        # Inputs of completed tasks remain evidence. Only exact outputs of an
+        # unfinished ancestor count as replaceable inputs, never in-place data.
+        protected.update(ref["path"] for ref in task.get("inputs", [])
+                         if name in completed or ref["path"] not in generated)
+    for index, path in enumerate(paths):
+        for keep in sorted(protected):
+            if _overlap(path, keep):
+                raise ValueError(f"cleanup output {path} overlaps protected path {keep}; "
+                                 "inspect and move partial products aside manually")
+        for other in paths[:index]:
+            if _overlap(path, other):
+                raise ValueError(f"overlapping cleanup outputs: {other} and {path}; "
+                                 "inspect and move partial products aside manually")
+
+
+def _output_fingerprint(raw: str) -> dict[str, Any]:
+    """Snapshot metadata, not scientific checksums; never follow tree symlinks."""
+    path = Path(raw)
+    parents = []
+    for parent in path.parents:
+        info = parent.lstat()
+        is_link = stat.S_ISLNK(info.st_mode)
+        # A recreated symlink can reuse its inode. Its change timestamp still
+        # distinguishes replacement; ordinary directory timestamps cannot be
+        # frozen because staging legitimately adds siblings beneath them.
+        parents.append([str(parent), info.st_dev, info.st_ino, info.st_mode,
+                        os.readlink(parent) if is_link else None,
+                        info.st_ctime_ns if is_link else None])
+    digest = hashlib.sha256()
+
+    def visit(item: Path) -> None:
+        info = item.lstat()
+        value = [str(item.relative_to(path)), info.st_dev, info.st_ino,
+                 info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+        if stat.S_ISLNK(info.st_mode):
+            value.append(os.readlink(item))
+        digest.update((json.dumps(value) + "\n").encode())
+        if stat.S_ISDIR(info.st_mode):
+            for child in sorted(item.iterdir()):
+                visit(child)
+
+    visit(path)
+    return {"resolved_path": str(path.resolve()), "parents": parents,
+            "tree_metadata_sha256": digest.hexdigest()}
+
+
 def _plan(cdir: Path, manifest: dict[str, Any], tasks: dict[str, Any],
           snapshot: dict[str, Any], *, allow_overwrite: bool = False) -> dict[str, Any]:
     if not snapshot.get("query_ok"):
@@ -408,25 +482,29 @@ def _plan(cdir: Path, manifest: dict[str, Any], tasks: dict[str, Any],
             raise ValueError(f"inconsistent completed dependency chain at {name}")
     # Check external inputs, not files that an unfinished ancestor will produce.
     produced = {ref["path"] for name in selected for ref in tasks[name].get("outputs", [])}
-    overwrite = bool(_read(cdir / "start.json").get("overwrite", False)) or allow_overwrite
+    overwrite = bool(_read(cdir / "start.json").get("overwrite", False))
     overwrite_outputs: list[str] = []
     for name in selected:
         for ref in tasks[name].get("inputs", []):
             if ref["path"] not in produced and not Path(ref["path"]).exists():
                 raise ValueError(f"task {name}: input missing: {ref['path']}")
-        if not (overwrite or tasks[name].get("overwrite", False)):
-            for ref in tasks[name].get("outputs", []):
-                path = Path(ref["path"])
-                if path.exists() or path.is_symlink():
-                    if not allow_overwrite:
-                        raise ValueError(f"unfinished task {name} has an existing output: {path}; "
-                                         "inspect and move partial output aside before resume, "
-                                         "or use resume --overwrite")
+        for ref in tasks[name].get("outputs", []):
+            path = Path(ref["path"])
+            if path.exists() or path.is_symlink():
+                if allow_overwrite:
                     overwrite_outputs.append(str(path))
+                elif not (overwrite or tasks[name].get("overwrite", False)):
+                    raise ValueError(f"unfinished task {name} has an existing output: {path}; "
+                                     "inspect and move partial output aside before resume, "
+                                     "or use resume --overwrite")
+    overwrite_outputs = list(dict.fromkeys(overwrite_outputs))
+    _validate_cleanup(cdir, tasks, completed, overwrite_outputs)
     plan = {"backend": manifest["backend"], "completed": completed, "selected": selected,
             "recorded_states": states, "reconciled_states": effective,
             "scheduler_before": snapshot}
     plan["overwrite_outputs"] = overwrite_outputs
+    plan["overwrite_fingerprints"] = {path: _output_fingerprint(path)
+                                       for path in overwrite_outputs}
     if manifest["backend"] == "condor" and selected:
         rescue, number = _latest_rescue(cdir)
         render = _read(cdir / "condor" / "render.json")
@@ -619,13 +697,21 @@ def _confirm_overwrite(paths: list[str], *, yes: bool, dry_run: bool) -> None:
         raise ValueError("resume cancelled")
 
 
-def _delete_overwrite_outputs(paths: list[str]) -> None:
+def _delete_overwrite_outputs(paths: list[str], record: dict[str, Any],
+                              record_path: Path) -> None:
     for raw in paths:
+        if _output_fingerprint(raw) != record["overwrite_fingerprints"][raw]:
+            raise RuntimeError(f"output changed before cleanup: {raw}; nothing submitted")
         path = Path(raw)
+        record["cleanup_in_flight"] = raw
+        _write(record_path, record)
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
         else:
-            path.unlink(missing_ok=True)
+            path.unlink()
+        record["removed_outputs"].append(raw)
+        record["cleanup_in_flight"] = None
+        _write(record_path, record)
 
 
 def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
@@ -676,7 +762,6 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
             print("[resume] dry run: nothing submitted or cancelled", flush=True)
             return 0
         _confirm_overwrite(plan.get("overwrite_outputs", []), yes=yes, dry_run=False)
-        _delete_overwrite_outputs(plan.get("overwrite_outputs", []))
         root = cdir / "resumes"
         root.mkdir(exist_ok=True)
         numbers = [int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()]
@@ -688,6 +773,8 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
             "started_at": _now(),
             "status": "preparing",
             "reason": reason,
+            "overwrite": overwrite,
+            "removed_outputs": [],
         }
         record_path = round_dir / "resume.json"
         _write(record_path, record)
@@ -708,13 +795,27 @@ def resume_campaign(campaign_dir: str | Path, *, dry_run: bool = False,
                 if not after["query_ok"] or after["active_jobs"]:
                     raise RuntimeError("cancellation not yet confirmed; nothing resubmitted. "
                                        "Retry resume after the old jobs have left the queue")
-                plan = _plan(cdir, manifest, tasks, after, allow_overwrite=overwrite)
                 record["scheduler_after_cancel"] = after
-                record["reconciled_states"] = plan["reconciled_states"]
+                fresh = after
             else:
                 fresh = scheduler_snapshot(cdir)
                 if not fresh["query_ok"] or fresh["active_jobs"]:
                     raise RuntimeError("scheduler state changed before submission; nothing resubmitted")
+            # Confirmation covers the inspected output set, not files that
+            # appeared or changed while staging/cancelling. Recheck everything
+            # before the first deletion, including completed task evidence.
+            refreshed = _plan(cdir, manifest, tasks, fresh, allow_overwrite=overwrite)
+            for key in ("completed", "selected", "recorded_states", "overwrite_outputs",
+                        "overwrite_fingerprints", "rescue_source", "rescue_sha256"):
+                if refreshed.get(key) != plan.get(key):
+                    raise RuntimeError("recovery plan or outputs changed before cleanup; "
+                                       "inspect and retry resume; nothing submitted")
+            plan = refreshed
+            record["reconciled_states"] = plan["reconciled_states"]
+            if plan["overwrite_outputs"]:
+                record["status"] = "cleaning_outputs"
+                _write(record_path, record)
+                _delete_overwrite_outputs(plan["overwrite_outputs"], record, record_path)
             # Reconcile mutable state only; leave all old attempt evidence intact.
             for name, value in plan["reconciled_states"].items():
                 old = plan["recorded_states"][name]

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0a8
+
+- Fix queued `resume --overwrite` skipping partial-output cleanup, which caused
+  the archived worker to fail again with `outputs_exist` after recovery.
+- Stage and recheck scheduler/task/output evidence before destructive cleanup;
+  protect retained data and campaign records, and journal cleanup progress.
+- Add partial-output restart coverage for Condor, Slurm and PBS, including
+  unchanged archived workers and failed/cancelled recovery paths.
+- Detect recreated parent symlinks even when their inode is reused.
+- Pin the CI runner to Ubuntu 22.04 to keep Python 3.8, 3.9 and 3.12 available.
+
 ## 0.12.0a6
 
 - Add confirmed `resume --overwrite` recovery for partial outputs, with `--yes`

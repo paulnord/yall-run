@@ -53,6 +53,42 @@ Use `--yes` (or `-y`) with `--overwrite` in a script. The option never removes
 outputs of tasks that recovery has verified as completed. Without `--yes`, a
 noninteractive invocation is rejected rather than assuming approval.
 
+For queued campaigns, preview the exact deletion set first:
+
+```bash
+yall-run resume campaigns/<campaign-id> --overwrite --dry-run
+yall-run resume campaigns/<campaign-id> --overwrite --yes
+```
+
+Explicit `resume --overwrite` removes existing declared outputs even if the
+task or original start already permits overwriting them. Without this option,
+an existing overwrite policy only allows the payload to use those paths; Yall
+does not remove them. Queued recovery leaves the frozen start policy unchanged.
+
+Cleanup starts only after recovery files have been staged and a fresh scheduler
+query confirms no active jobs remain, including any requested Slurm/PBS
+cancellations. It refuses outputs that overlap completed products, protected
+inputs or the campaign directory. Nested/aliased cleanup paths are refused
+rather than guessing ownership. Changed task evidence, changed cleanup paths,
+or changed file/tree metadata between confirmation and cleanup stop recovery.
+These are metadata checks, not content checksums or a filesystem transaction:
+keep other writers and manual scheduler submissions stopped during recovery.
+
+The recovery record lists planned outputs, successfully removed outputs and
+any cleanup operation whose completion is uncertain. Deletion cannot be undone;
+move partial products aside yourself if you want to retain them for inspection.
+A submission error after cleanup does not restore deleted outputs. Inspect the
+record and queue before retrying. Undeclared side products are not discovered or
+removed, so declare every product that must be regenerated or handle companions
+in the application-specific workflow.
+
+Condor can relaunch an evicted job before a campaign-level `resume`. This does
+not authorize the worker to delete existing files: without an explicit overwrite
+policy it still stops at `outputs_exist`. Increasing retry counts does not solve
+that collision. Let the DAG finish, then inspect partial products and use the
+explicit recovery flow above. Automatic ownership-aware cleanup on eviction is
+not implemented by `resume --overwrite`.
+
 Fix the original cause before resuming, for example rebuilding an executable
 at the path recorded in the task. Referenced binaries, data and container images
 remain external resources; resuming does not make a moving image immutable.
